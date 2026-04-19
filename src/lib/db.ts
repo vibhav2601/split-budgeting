@@ -69,6 +69,16 @@ function migrate(d: Database.Database) {
       value TEXT NOT NULL
     );
   `);
+
+  const txnColumns = new Set(
+    (d.prepare("PRAGMA table_info(transactions)").all() as Array<{ name: string }>).map(
+      (col) => col.name,
+    ),
+  );
+  if (!txnColumns.has("mine_only")) {
+    d.exec("ALTER TABLE transactions ADD COLUMN mine_only INTEGER NOT NULL DEFAULT 0");
+  }
+  d.exec("CREATE INDEX IF NOT EXISTS idx_txn_mine_only ON transactions(mine_only)");
 }
 
 export function getSetting(key: string): string | null {
@@ -84,4 +94,17 @@ export function setSetting(key: string, value: string) {
       "INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
     )
     .run(key, value);
+}
+
+export function clearDatabase() {
+  const d = db();
+  const reset = d.transaction(() => {
+    d.prepare("DELETE FROM merge_links").run();
+    d.prepare("DELETE FROM merge_groups").run();
+    d.prepare("DELETE FROM transactions").run();
+    d.prepare("DELETE FROM import_batches").run();
+    d.prepare("DELETE FROM settings").run();
+    d.prepare("DELETE FROM sqlite_sequence").run();
+  });
+  reset();
 }

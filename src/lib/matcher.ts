@@ -53,8 +53,8 @@ function shouldExcludeSplitwiseFromReconcile(txn: Transaction): boolean {
 
 function unreconciled(source?: Transaction["source"]): Transaction[] {
   const sql = source
-    ? `SELECT * FROM transactions WHERE reconciled = 0 AND source = ? ORDER BY date DESC`
-    : `SELECT * FROM transactions WHERE reconciled = 0 ORDER BY date DESC`;
+    ? `SELECT * FROM transactions WHERE reconciled = 0 AND mine_only = 0 AND source = ? ORDER BY date DESC`
+    : `SELECT * FROM transactions WHERE reconciled = 0 AND mine_only = 0 ORDER BY date DESC`;
   const stmt = db().prepare(sql);
   return (source ? stmt.all(source) : stmt.all()) as Transaction[];
 }

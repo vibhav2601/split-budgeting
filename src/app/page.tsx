@@ -1,3 +1,5 @@
+import ResetDbButton from "./reset-db-button";
+import MineOnlyButton from "./mine-only-button";
 import UnmergedTransactionsSection from "./unmerged-transactions-section";
 import { db } from "@/lib/db";
 import type { Transaction } from "@/lib/types";
@@ -27,7 +29,7 @@ function loadData() {
   const unmerged = d
     .prepare(
       `SELECT * FROM transactions
-       WHERE reconciled = 0 AND source IN ('credit_card', 'venmo')
+       WHERE reconciled = 0 AND mine_only = 0 AND source IN ('credit_card', 'venmo')
        ORDER BY date DESC, id DESC`,
     )
     .all() as Transaction[];
@@ -55,7 +57,7 @@ function loadData() {
       `SELECT
          COUNT(*) AS total_txns,
          SUM(CASE WHEN reconciled = 1 THEN 1 ELSE 0 END) AS reconciled,
-         SUM(CASE WHEN reconciled = 0 THEN 1 ELSE 0 END) AS pending
+         SUM(CASE WHEN reconciled = 0 AND mine_only = 0 THEN 1 ELSE 0 END) AS pending
        FROM transactions`,
     )
     .get() as { total_txns: number; reconciled: number; pending: number };
@@ -76,13 +78,16 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-8">
-      <header>
-        <h1 className="text-2xl font-semibold">Dashboard</h1>
-        <p className="text-sm opacity-70 mt-1">
-          True personal spend = Splitwise shares + unreconciled credit card +
-          unreconciled Venmo outflows. Unmatched CC charges count in full
-          until you reconcile them.
-        </p>
+      <header className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold">Dashboard</h1>
+          <p className="text-sm opacity-70 mt-1">
+            True personal spend = Splitwise shares + unreconciled credit card +
+            unreconciled Venmo outflows. Unmatched CC charges count in full
+            until you reconcile them.
+          </p>
+        </div>
+        <ResetDbButton />
       </header>
 
       <section className="grid grid-cols-3 gap-4">
@@ -144,7 +149,8 @@ export default function Dashboard() {
                 <th className="pr-4">Merchant</th>
                 <th className="pr-4 text-right">Total</th>
                 <th className="pr-4 text-right">My share</th>
-                <th>Status</th>
+                <th className="pr-4">Status</th>
+                <th>Action</th>
               </tr>
             </thead>
             <tbody>
@@ -162,7 +168,20 @@ export default function Dashboard() {
                   <td className="pr-4 text-right font-mono">
                     ${t.amount_my_share.toFixed(2)}
                   </td>
-                  <td>{t.reconciled ? "merged" : "pending"}</td>
+                  <td className="pr-4">
+                    {t.reconciled ? "merged" : t.mine_only ? "mine only" : "pending"}
+                  </td>
+                  <td>
+                    {t.source !== "splitwise" && !t.reconciled ? (
+                      <MineOnlyButton
+                        transactionId={t.id}
+                        mineOnly={Boolean(t.mine_only)}
+                        compact
+                      />
+                    ) : (
+                      "—"
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

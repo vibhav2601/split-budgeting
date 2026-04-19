@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useDeferredValue, useEffect, useState } from "react";
+import MineOnlyButton from "@/app/mine-only-button";
 import type { MergeSuggestion, ReconcileSuggestResponse, Transaction } from "@/lib/types";
 
 export default function ReconcilePage() {
@@ -25,6 +26,8 @@ function ReconcilePageContent() {
   const [suggestions, setSuggestions] = useState<MergeSuggestion[]>([]);
   const [selections, setSelections] = useState<Record<number, Set<number>>>({});
   const [focusTxn, setFocusTxn] = useState<Transaction | null>(null);
+  const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -92,6 +95,21 @@ function ReconcilePageContent() {
     }
   }
 
+  const normalizedSearch = normalizeSearchText(deferredSearch);
+  const filteredSuggestions = suggestions
+    .map((suggestion) => {
+      if (!normalizedSearch) return suggestion;
+      const splitwiseMatches = transactionMatchesSearch(suggestion.splitwise_txn, normalizedSearch);
+      const candidates = splitwiseMatches
+        ? suggestion.candidates
+        : suggestion.candidates.filter((candidate) =>
+            candidateMatchesSearch(candidate, normalizedSearch),
+          );
+      if (!splitwiseMatches && candidates.length === 0) return null;
+      return { ...suggestion, candidates };
+    })
+    .filter((suggestion): suggestion is MergeSuggestion => suggestion !== null);
+
   return (
     <div className="space-y-6">
       <header className="flex items-center justify-between">
@@ -111,6 +129,34 @@ function ReconcilePageContent() {
           Refresh
         </button>
       </header>
+
+      <section className="flex flex-col gap-2">
+        <label htmlFor="reconcile-search" className="text-sm font-medium">
+          Search transactions
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            id="reconcile-search"
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Merchant, date, amount, category, source, or reason"
+            className="w-full rounded border border-black/15 dark:border-white/15 bg-transparent px-3 py-2 text-sm"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              className="px-3 py-2 text-sm rounded border border-black/20 dark:border-white/20 hover:bg-black/5 dark:hover:bg-white/10"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        <p className="text-xs opacity-60">
+          Showing {filteredSuggestions.length} of {suggestions.length} Splitwise entries.
+        </p>
+      </section>
 
       {focusTxn && (
         <section className="border border-black/10 dark:border-white/10 rounded p-4 flex items-start justify-between gap-4">
@@ -145,9 +191,14 @@ function ReconcilePageContent() {
           already matched.
         </p>
       )}
+      {!loading && !error && suggestions.length > 0 && filteredSuggestions.length === 0 && (
+        <p className="text-sm opacity-60">
+          No reconcile results match your search.
+        </p>
+      )}
 
       <div className="space-y-4">
-        {suggestions.map((s) => (
+        {filteredSuggestions.map((s) => (
           <div
             key={s.splitwise_txn.id}
             className="border border-black/10 dark:border-white/10 rounded p-4 space-y-3"
@@ -190,6 +241,7 @@ function ReconcilePageContent() {
                   focused={focusTxn?.id === c.txn.id}
                   selected={(selections[s.splitwise_txn.id] ?? new Set()).has(c.txn.id)}
                   onToggle={() => toggle(s.splitwise_txn.id, c.txn.id)}
+                  onMineOnly={load}
                 />
               ))}
             </div>
@@ -200,6 +252,38 @@ function ReconcilePageContent() {
   );
 }
 
+function normalizeSearchText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9.]+/g, " ")
+    .trim();
+}
+
+function transactionMatchesSearch(txn: Transaction, query: string): boolean {
+  return normalizeSearchText(
+    [
+      txn.merchant_raw,
+      txn.description ?? "",
+      txn.category ?? "",
+      txn.date,
+      txn.source,
+      txn.payer,
+      txn.amount_total.toFixed(2),
+      txn.amount_my_share.toFixed(2),
+    ].join(" "),
+  ).includes(query);
+}
+
+function candidateMatchesSearch(
+  candidate: MergeSuggestion["candidates"][number],
+  query: string,
+): boolean {
+  if (transactionMatchesSearch(candidate.txn, query)) return true;
+  return normalizeSearchText(
+    `${candidate.reasons.join(" ")} ${(candidate.score * 100).toFixed(0)}`,
+  ).includes(query);
+}
+
 function CandidateRow({
   txn,
   score,
@@ -207,6 +291,7 @@ function CandidateRow({
   focused,
   selected,
   onToggle,
+  onMineOnly,
 }: {
   txn: Transaction;
   score: number;
@@ -214,9 +299,10 @@ function CandidateRow({
   focused: boolean;
   selected: boolean;
   onToggle: () => void;
+  onMineOnly: () => void | Promise<void>;
 }) {
   return (
-    <label
+    <div
       className={`flex items-start gap-3 p-2 rounded cursor-pointer border ${
         selected
           ? "border-black/40 dark:border-white/40 bg-black/5 dark:bg-white/5"
@@ -248,6 +334,13 @@ function CandidateRow({
         </div>
         <div className="text-xs opacity-60">{reasons.join(" · ")}</div>
       </div>
-    </label>
+      <MineOnlyButton
+        transactionId={txn.id}
+        mineOnly={Boolean(txn.mine_only)}
+        compact
+        autoRefresh={false}
+        onChanged={onMineOnly}
+      />
+    </div>
   );
 }

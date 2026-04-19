@@ -82,6 +82,20 @@ const SOURCE_FIELD_ORDER: Record<Source, CSVImportField[]> = {
   splitwise: ["date", "merchant", "amount", "myShare", "paidBy", "category", "currency"],
 };
 
+const CREDIT_CARD_IMPORT_IGNORE_PATTERNS = [
+  "payment thank you",
+  "online ach payment",
+  "ach deposit",
+  "internet transfer",
+  "last statement bal",
+  "statement balance",
+  "balance for last month",
+  "balacne for last month",
+  "balance transfer",
+  "automatic payment",
+  "autopay",
+];
+
 export function parseCSV(csvText: string, options: ParseOptions = {}): ParserResult {
   const parsed = parseRawCSV(csvText);
   const detected =
@@ -99,14 +113,27 @@ export function parseCSV(csvText: string, options: ParseOptions = {}): ParserRes
   const warnings = options.config ? validateRequiredFields(detected, options.config.mapping) : [];
   const recommended = recommendMappings(parsed.headers)[detected];
   const mapping = options.config?.mapping ?? recommended;
+  const ignoredCounts = new Map<string, number>();
   const rows = parsed.rows
     .map((r) => normalizeKeys(r))
-    .map((r) => {
-      if (detected === "credit_card") return parseCreditCardRow(r, mapping);
-      if (detected === "venmo") return parseVenmoRow(r, mapping);
-      return parseSplitwiseRow(r, mapping, options.config);
-    })
-    .filter((x): x is ParsedRow => x !== null);
+    .flatMap((r) => {
+      const ignoredReason = getImportIgnoreReason(detected, r, mapping);
+      if (ignoredReason) {
+        ignoredCounts.set(ignoredReason, (ignoredCounts.get(ignoredReason) ?? 0) + 1);
+        return [];
+      }
+      if (detected === "credit_card") {
+        const parsedRow = parseCreditCardRow(r, mapping);
+        return parsedRow ? [parsedRow] : [];
+      }
+      if (detected === "venmo") {
+        const parsedRow = parseVenmoRow(r, mapping);
+        return parsedRow ? [parsedRow] : [];
+      }
+      const parsedRow = parseSplitwiseRow(r, mapping, options.config);
+      return parsedRow ? [parsedRow] : [];
+    });
+  warnings.push(...formatIgnoredRowWarnings(ignoredCounts, "import"));
 
   return { source: detected, rows, warnings };
 }
@@ -118,6 +145,20 @@ export function previewCSV(csvText: string, filename?: string): CSVPreviewResult
   const warnings = recommendedSource
     ? validateRequiredFields(recommendedSource, recommendedMappings[recommendedSource])
     : [`Could not auto-detect source. Headers: ${parsed.headers.join(", ")}`];
+  if (recommendedSource) {
+    const ignoredCounts = new Map<string, number>();
+    for (const row of parsed.rows.map((r) => normalizeKeys(r))) {
+      const ignoredReason = getImportIgnoreReason(
+        recommendedSource,
+        row,
+        recommendedMappings[recommendedSource],
+      );
+      if (ignoredReason) {
+        ignoredCounts.set(ignoredReason, (ignoredCounts.get(ignoredReason) ?? 0) + 1);
+      }
+    }
+    warnings.push(...formatIgnoredRowWarnings(ignoredCounts, "preview"));
+  }
 
   return {
     headers: parsed.headers,
@@ -245,6 +286,61 @@ function validateRequiredFields(source: Source, mapping: CSVColumnMapping): stri
     }
   }
   return warnings;
+}
+
+function normalizeImportText(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function getImportIgnoreReason(
+  source: Source,
+  row: Record<string, string>,
+  mapping: CSVColumnMapping,
+): string | null {
+  if (source === "credit_card") {
+    const merchant = getFieldValue(row, mapping, "merchant");
+    const description = getFieldValue(row, mapping, "description");
+    const category = getFieldValue(row, mapping, "category");
+    const type = row[normalizeHeaderName("type")] ?? "";
+    const text = normalizeImportText(`${merchant} ${description} ${category} ${type}`);
+    if (!text) return null;
+    if (normalizeImportText(category) === "payment" || normalizeImportText(type) === "payment") {
+      return "credit card payment/transfer row";
+    }
+    if (CREDIT_CARD_IMPORT_IGNORE_PATTERNS.some((pattern) => text.includes(pattern))) {
+      return "credit card payment/transfer row";
+    }
+    return null;
+  }
+
+  if (source === "splitwise") {
+    const merchant = getFieldValue(row, mapping, "merchant");
+    const description = getFieldValue(row, mapping, "description");
+    const text = normalizeImportText(`${merchant} ${description}`);
+    if (text.includes("settle all balances")) {
+      return "splitwise settlement row";
+    }
+  }
+
+  return null;
+}
+
+function formatIgnoredRowWarnings(
+  ignoredCounts: Map<string, number>,
+  mode: "preview" | "import",
+): string[] {
+  const total = Array.from(ignoredCounts.values()).reduce((sum, count) => sum + count, 0);
+  if (total === 0) return [];
+
+  const details = Array.from(ignoredCounts.entries()).map(([label, count]) =>
+    `${count} ${label}${count === 1 ? "" : "s"}`,
+  );
+  const prefix = mode === "preview" ? "Will ignore" : "Ignored";
+  const suffix = mode === "preview" ? "on import" : "during import";
+  return [`${prefix} ${total} row${total === 1 ? "" : "s"} ${suffix}: ${details.join(", ")}.`];
 }
 
 function getFieldValue(

@@ -37,7 +37,7 @@ export async function GET() {
       `SELECT
          COUNT(*) AS total_txns,
          SUM(CASE WHEN reconciled = 1 THEN 1 ELSE 0 END) AS reconciled,
-         SUM(CASE WHEN reconciled = 0 THEN 1 ELSE 0 END) AS pending
+         SUM(CASE WHEN reconciled = 0 AND mine_only = 0 THEN 1 ELSE 0 END) AS pending
        FROM transactions`,
     )
     .get() as { total_txns: number; reconciled: number; pending: number };

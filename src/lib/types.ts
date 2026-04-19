@@ -15,6 +15,7 @@ export interface Transaction {
   category: string | null;
   currency: string;
   reconciled: 0 | 1;
+  mine_only: 0 | 1;
   raw_json: string | null;
 }
 

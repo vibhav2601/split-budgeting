@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import MineOnlyButton from "./mine-only-button";
 import type { Transaction } from "@/lib/types";
 
 type SortKey = "total" | "share";
@@ -98,9 +99,16 @@ export default function UnmergedTransactionsSection({
                     ${txn.amount_my_share.toFixed(2)}
                   </td>
                   <td>
-                    <Link href={`/reconcile?txn_id=${txn.id}`} className="underline">
-                      Reconcile
-                    </Link>
+                    <div className="flex flex-col items-start gap-1">
+                      <Link href={`/reconcile?txn_id=${txn.id}`} className="underline">
+                        Reconcile
+                      </Link>
+                      <MineOnlyButton
+                        transactionId={txn.id}
+                        mineOnly={Boolean(txn.mine_only)}
+                        compact
+                      />
+                    </div>
                   </td>
                 </tr>
               ))}
