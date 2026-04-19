@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { loadMonthlyTrueSpendRows } from "@/lib/expense-summary";
 import type { Transaction } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -12,25 +13,7 @@ export async function GET() {
     )
     .all() as Transaction[];
 
-  type Row = { month: string; category: string | null; true_spend: number };
-  const monthly = d
-    .prepare(
-      `SELECT
-         substr(date, 1, 7) AS month,
-         COALESCE(category, 'Uncategorized') AS category,
-         SUM(
-           CASE
-             WHEN source = 'splitwise' THEN amount_my_share
-             WHEN source = 'credit_card' AND reconciled = 0 THEN amount_my_share
-             WHEN source = 'venmo' AND reconciled = 0 AND payer = 'me' THEN amount_my_share
-             ELSE 0
-           END
-         ) AS true_spend
-       FROM transactions
-       GROUP BY month, category
-       ORDER BY month DESC, true_spend DESC`,
-    )
-    .all() as Row[];
+  const monthly = loadMonthlyTrueSpendRows(d);
 
   const totals = d
     .prepare(

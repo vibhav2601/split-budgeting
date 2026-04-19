@@ -25,7 +25,7 @@ Open http://localhost:3000.
 
 1. `/import` — upload credit card / Venmo / Splitwise CSVs, or screenshots
    (parsed with GPT vision), or sync Splitwise via API.
-2. `/reconcile` — review suggested merges, pick the real match, confirm.
+2. `/reconcile` — Splitwise reconcile: review suggested merges, pick the real match, confirm.
 3. `/` — dashboard shows monthly true-spend by category.
 
 ## Matching algorithm

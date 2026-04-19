@@ -19,7 +19,26 @@ export interface Transaction {
   raw_json: string | null;
 }
 
-export type MergeRole = "cc_charge" | "splitwise_share" | "venmo_settlement";
+export interface CategorySuggestion {
+  transaction_id: number;
+  suggested_category: string;
+  reason: string | null;
+  confidence: number;
+  model: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UncategorizedTransactionRow {
+  transaction: Transaction;
+  suggestion: CategorySuggestion | null;
+}
+
+export type MergeRole =
+  | "cc_charge"
+  | "splitwise_share"
+  | "venmo_settlement"
+  | "venmo_reimbursement";
 
 export interface MergeGroup {
   id: number;

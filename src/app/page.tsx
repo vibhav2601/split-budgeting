@@ -1,57 +1,20 @@
 import ResetDbButton from "./reset-db-button";
 import MineOnlyButton from "./mine-only-button";
-import UnmergedTransactionsSection from "./unmerged-transactions-section";
+import { ReconcileTxnLink, ReimbursementTxnLink } from "./components/txn-actions";
+import TransactionSourceLabel from "./components/transaction-source-label";
 import { db } from "@/lib/db";
+import { loadMonthlyTrueSpendRows, type MonthlySpendRow } from "@/lib/expense-summary";
 import type { Transaction } from "@/lib/types";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
-
-type MonthlyRow = { month: string; category: string; true_spend: number };
-
-function isLikelyNonSpend(txn: Transaction): boolean {
-  const text = `${txn.merchant_raw} ${txn.description ?? ""}`.toLowerCase();
-  return [
-    "payment thank you",
-    "online ach payment",
-    "last statement bal",
-    "statement balance",
-    "balance transfer",
-    "automatic payment",
-    "autopay",
-  ].some((needle) => text.includes(needle));
-}
 
 function loadData() {
   const d = db();
   const transactions = d
     .prepare(`SELECT * FROM transactions ORDER BY date DESC, id DESC LIMIT 100`)
     .all() as Transaction[];
-  const unmerged = d
-    .prepare(
-      `SELECT * FROM transactions
-       WHERE reconciled = 0 AND mine_only = 0 AND source IN ('credit_card', 'venmo')
-       ORDER BY date DESC, id DESC`,
-    )
-    .all() as Transaction[];
-  const monthly = d
-    .prepare(
-      `SELECT
-         substr(date, 1, 7) AS month,
-         COALESCE(category, 'Uncategorized') AS category,
-         SUM(
-           CASE
-             WHEN source = 'splitwise' THEN amount_my_share
-             WHEN source = 'credit_card' AND reconciled = 0 THEN amount_my_share
-             WHEN source = 'venmo' AND reconciled = 0 AND payer = 'me' THEN amount_my_share
-             ELSE 0
-           END
-         ) AS true_spend
-       FROM transactions
-       GROUP BY month, category
-       HAVING true_spend > 0
-       ORDER BY month DESC, true_spend DESC`,
-    )
-    .all() as MonthlyRow[];
+  const monthly = loadMonthlyTrueSpendRows(d);
   const totals = d
     .prepare(
       `SELECT
@@ -61,16 +24,12 @@ function loadData() {
        FROM transactions`,
     )
     .get() as { total_txns: number; reconciled: number; pending: number };
-  const actionableUnmerged = unmerged.filter((txn) => {
-    if (txn.source === "venmo" && txn.payer !== "me") return false;
-    return !isLikelyNonSpend(txn);
-  });
-  return { transactions, monthly, totals, actionableUnmerged };
+  return { transactions, monthly, totals };
 }
 
 export default function Dashboard() {
-  const { transactions, monthly, totals, actionableUnmerged } = loadData();
-  const byMonth = new Map<string, MonthlyRow[]>();
+  const { transactions, monthly, totals } = loadData();
+  const byMonth = new Map<string, MonthlySpendRow[]>();
   for (const row of monthly) {
     if (!byMonth.has(row.month)) byMonth.set(row.month, []);
     byMonth.get(row.month)!.push(row);
@@ -95,8 +54,6 @@ export default function Dashboard() {
         <Stat label="Reconciled" value={totals.reconciled ?? 0} />
         <Stat label="Pending review" value={totals.pending ?? 0} />
       </section>
-
-      <UnmergedTransactionsSection transactions={actionableUnmerged} />
 
       <section>
         <h2 className="text-lg font-medium mb-3">Monthly true spend by category</h2>
@@ -124,7 +81,17 @@ export default function Dashboard() {
                         key={r.category}
                         className="border-t border-black/5 dark:border-white/5"
                       >
-                        <td className="py-1">{r.category}</td>
+                        <td className="py-1">
+                          <Link
+                            href={{
+                              pathname: "/dashboard/category",
+                              query: { month, category: r.category },
+                            }}
+                            className="underline underline-offset-2"
+                          >
+                            {r.category}
+                          </Link>
+                        </td>
                         <td className="py-1 text-right font-mono">
                           ${r.true_spend.toFixed(2)}
                         </td>
@@ -160,7 +127,9 @@ export default function Dashboard() {
                   className="border-t border-black/5 dark:border-white/5"
                 >
                   <td className="py-1 pr-4 font-mono">{t.date}</td>
-                  <td className="pr-4">{t.source}</td>
+                  <td className="pr-4">
+                    <TransactionSourceLabel transaction={t} />
+                  </td>
                   <td className="pr-4">{t.merchant_raw}</td>
                   <td className="pr-4 text-right font-mono">
                     ${t.amount_total.toFixed(2)}
@@ -173,11 +142,18 @@ export default function Dashboard() {
                   </td>
                   <td>
                     {t.source !== "splitwise" && !t.reconciled ? (
-                      <MineOnlyButton
-                        transactionId={t.id}
-                        mineOnly={Boolean(t.mine_only)}
-                        compact
-                      />
+                      <div className="flex flex-row items-center gap-1">
+                        <ReconcileTxnLink transactionId={t.id} />
+                        {t.source === "credit_card" && (
+                          <ReimbursementTxnLink transactionId={t.id} />
+                        )}
+                        <MineOnlyButton
+                          transactionId={t.id}
+                          mineOnly={Boolean(t.mine_only)}
+                          compact
+                          iconOnly
+                        />
+                      </div>
                     ) : (
                       "—"
                     )}

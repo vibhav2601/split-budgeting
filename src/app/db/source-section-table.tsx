@@ -1,12 +1,27 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { startTransition, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import ConfirmDialog from "@/app/components/confirm-dialog";
 import MineOnlyButton from "@/app/mine-only-button";
+import {
+  ReconcileTxnLink,
+  TrashIcon,
+  txnActionIconButtonClass,
+} from "@/app/components/txn-actions";
 import type { Source, Transaction } from "@/lib/types";
 
 type SortKey = "date" | "total";
 type SortDir = "asc" | "desc";
+type StatusFilter = "pending" | "mine_only" | "merged";
+
+const STATUS_OPTIONS: Array<{ key: StatusFilter; label: string }> = [
+  { key: "pending", label: "Pending" },
+  { key: "mine_only", label: "Mine only" },
+  { key: "merged", label: "Merged" },
+];
+
+const DELETE_CONFIRM_STORAGE_KEY = "split-budgeting:skip-delete-confirm";
 
 function renderValue(value: string | null): string {
   return value && value.trim() ? value : "—";
@@ -21,6 +36,12 @@ function prettyJson(raw: string | null): string {
   }
 }
 
+function statusOf(row: Transaction): StatusFilter {
+  if (row.reconciled) return "merged";
+  if (row.mine_only) return "mine_only";
+  return "pending";
+}
+
 export default function SourceSectionTable({
   source,
   initialRows,
@@ -32,19 +53,34 @@ export default function SourceSectionTable({
   const [rows, setRows] = useState(initialRows);
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [statusFilters, setStatusFilters] = useState<Set<StatusFilter>>(
+    () => new Set(STATUS_OPTIONS.map((option) => option.key)),
+  );
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [pendingDeleteRow, setPendingDeleteRow] = useState<Transaction | null>(null);
+  const [skipDeleteConfirm, setSkipDeleteConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    setRows(initialRows);
+  }, [initialRows]);
+
+  useEffect(() => {
+    setSkipDeleteConfirm(window.localStorage.getItem(DELETE_CONFIRM_STORAGE_KEY) === "1");
+  }, []);
+
   const sortedRows = useMemo(() => {
-    const ordered = [...rows].sort((a, b) => {
-      const cmp =
-        sortKey === "total"
-          ? a.amount_total - b.amount_total
-          : a.date.localeCompare(b.date) || a.id - b.id;
-      return sortDir === "asc" ? cmp : -cmp;
-    });
+    const ordered = rows
+      .filter((row) => statusFilters.has(statusOf(row)))
+      .sort((a, b) => {
+        const cmp =
+          sortKey === "total"
+            ? a.amount_total - b.amount_total
+            : a.date.localeCompare(b.date) || a.id - b.id;
+        return sortDir === "asc" ? cmp : -cmp;
+      });
     return ordered;
-  }, [rows, sortDir, sortKey]);
+  }, [rows, statusFilters, sortDir, sortKey]);
 
   function setSort(nextKey: SortKey) {
     if (sortKey === nextKey) {
@@ -55,12 +91,26 @@ export default function SourceSectionTable({
     setSortDir(nextKey === "date" ? "desc" : "desc");
   }
 
+  function toggleStatusFilter(status: StatusFilter) {
+    setStatusFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(status)) next.delete(status);
+      else next.add(status);
+      return next;
+    });
+  }
+
+  function selectAllStatuses() {
+    setStatusFilters(new Set(STATUS_OPTIONS.map((option) => option.key)));
+  }
+
+  function updateSkipDeleteConfirm(next: boolean) {
+    setSkipDeleteConfirm(next);
+    window.localStorage.setItem(DELETE_CONFIRM_STORAGE_KEY, next ? "1" : "0");
+  }
+
   async function deleteRow(row: Transaction) {
     if (deletingId !== null) return;
-    const confirmed = window.confirm(
-      `Delete ${row.merchant_raw} on ${row.date}? This cannot be undone.`,
-    );
-    if (!confirmed) return;
 
     setDeletingId(row.id);
     setError(null);
@@ -73,6 +123,7 @@ export default function SourceSectionTable({
       const body = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(body.error ?? "failed");
       setRows((prev) => prev.filter((txn) => txn.id !== row.id));
+      setPendingDeleteRow(null);
       router.refresh();
     } catch (e) {
       setError((e as Error).message);
@@ -81,32 +132,73 @@ export default function SourceSectionTable({
     }
   }
 
+  function requestDelete(row: Transaction) {
+    if (deletingId !== null) return;
+    if (skipDeleteConfirm) {
+      void deleteRow(row);
+      return;
+    }
+    setPendingDeleteRow(row);
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-4">
-        <div className="flex gap-2 text-sm">
-          <button
-            type="button"
-            onClick={() => setSort("date")}
-            className={`px-3 py-1.5 rounded border ${
-              sortKey === "date"
-                ? "border-black/40 dark:border-white/40 bg-black/5 dark:bg-white/5"
-                : "border-black/20 dark:border-white/20 hover:bg-black/5 dark:hover:bg-white/10"
-            }`}
-          >
-            Sort by date {sortKey === "date" ? (sortDir === "desc" ? "↓" : "↑") : ""}
-          </button>
-          <button
-            type="button"
-            onClick={() => setSort("total")}
-            className={`px-3 py-1.5 rounded border ${
-              sortKey === "total"
-                ? "border-black/40 dark:border-white/40 bg-black/5 dark:bg-white/5"
-                : "border-black/20 dark:border-white/20 hover:bg-black/5 dark:hover:bg-white/10"
-            }`}
-          >
-            Sort by price {sortKey === "total" ? (sortDir === "desc" ? "↓" : "↑") : ""}
-          </button>
+        <div className="flex flex-wrap gap-3">
+          <div className="flex gap-2 text-sm">
+            <button
+              type="button"
+              onClick={() => setSort("date")}
+              className={`px-3 py-1.5 rounded border ${
+                sortKey === "date"
+                  ? "border-black/40 dark:border-white/40 bg-black/5 dark:bg-white/5"
+                  : "border-black/20 dark:border-white/20 hover:bg-black/5 dark:hover:bg-white/10"
+              }`}
+            >
+              Sort by date {sortKey === "date" ? (sortDir === "desc" ? "↓" : "↑") : ""}
+            </button>
+            <button
+              type="button"
+              onClick={() => setSort("total")}
+              className={`px-3 py-1.5 rounded border ${
+                sortKey === "total"
+                  ? "border-black/40 dark:border-white/40 bg-black/5 dark:bg-white/5"
+                  : "border-black/20 dark:border-white/20 hover:bg-black/5 dark:hover:bg-white/10"
+              }`}
+            >
+              Sort by price {sortKey === "total" ? (sortDir === "desc" ? "↓" : "↑") : ""}
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="opacity-60">Status:</span>
+            <button
+              type="button"
+              onClick={selectAllStatuses}
+              className={`px-3 py-1.5 rounded border ${
+                statusFilters.size === STATUS_OPTIONS.length
+                  ? "border-black/40 dark:border-white/40 bg-black/5 dark:bg-white/5"
+                  : "border-black/20 dark:border-white/20 hover:bg-black/5 dark:hover:bg-white/10"
+              }`}
+            >
+              {statusFilters.size === STATUS_OPTIONS.length ? "✓ " : ""}
+              All
+            </button>
+            {STATUS_OPTIONS.map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                onClick={() => toggleStatusFilter(option.key)}
+                className={`px-3 py-1.5 rounded border ${
+                  statusFilters.has(option.key)
+                    ? "border-black/40 dark:border-white/40 bg-black/5 dark:bg-white/5"
+                    : "border-black/20 dark:border-white/20 hover:bg-black/5 dark:hover:bg-white/10"
+                }`}
+              >
+                {statusFilters.has(option.key) ? "✓ " : ""}
+                {option.label}
+              </button>
+            ))}
+          </div>
         </div>
         {error && <p className="text-sm text-red-500">{error}</p>}
       </div>
@@ -144,23 +236,40 @@ export default function SourceSectionTable({
                   {row.reconciled ? "merged" : row.mine_only ? "mine only" : "pending"}
                 </td>
                 <td className="pr-4 min-w-36">
-                  <div className="flex flex-col items-start gap-1">
+                  <div className="flex flex-row flex-wrap items-center gap-1">
                     {row.source !== "splitwise" && !row.reconciled ? (
-                      <MineOnlyButton
-                        transactionId={row.id}
-                        mineOnly={Boolean(row.mine_only)}
-                        compact
-                      />
+                      <>
+                        <ReconcileTxnLink transactionId={row.id} />
+                        <MineOnlyButton
+                          transactionId={row.id}
+                          mineOnly={Boolean(row.mine_only)}
+                          compact
+                          iconOnly
+                          autoRefresh={false}
+                          onChanged={(nextMineOnly) => {
+                            setRows((prev) =>
+                              prev.map((txn) =>
+                                txn.id === row.id ? { ...txn, mine_only: nextMineOnly ? 1 : 0 } : txn,
+                              ),
+                            );
+                            startTransition(() => {
+                              router.refresh();
+                            });
+                          }}
+                        />
+                      </>
                     ) : (
                       <span className="text-xs opacity-50">—</span>
                     )}
                     <button
                       type="button"
-                      onClick={() => deleteRow(row)}
+                      onClick={() => requestDelete(row)}
                       disabled={deletingId === row.id}
-                      className="text-sm text-red-600 underline underline-offset-2 disabled:opacity-50 dark:text-red-400"
+                      title={deletingId === row.id ? "Deleting…" : "Delete transaction"}
+                      aria-label={deletingId === row.id ? "Deleting…" : "Delete transaction"}
+                      className={`${txnActionIconButtonClass} text-red-600 hover:bg-red-500/10 disabled:opacity-50 dark:text-red-400`}
                     >
-                      {deletingId === row.id ? "Deleting…" : "Delete"}
+                      <TrashIcon className="size-[1.125rem] shrink-0" />
                     </button>
                   </div>
                 </td>
@@ -196,6 +305,30 @@ export default function SourceSectionTable({
       {rows.length === 0 && (
         <p className="text-sm opacity-60">No rows remain in this source.</p>
       )}
+      {rows.length > 0 && sortedRows.length === 0 && (
+        <p className="text-sm opacity-60">No rows match the current filters.</p>
+      )}
+      <ConfirmDialog
+        open={pendingDeleteRow !== null}
+        title="Delete transaction?"
+        description={
+          pendingDeleteRow
+            ? `Delete ${pendingDeleteRow.merchant_raw} on ${pendingDeleteRow.date}? This cannot be undone.`
+            : ""
+        }
+        confirmLabel="Delete"
+        tone="danger"
+        skipFutureLabel="Don't show again"
+        skipFutureValue={skipDeleteConfirm}
+        onSkipFutureChange={updateSkipDeleteConfirm}
+        busy={pendingDeleteRow !== null && deletingId === pendingDeleteRow.id}
+        onCancel={() => {
+          if (deletingId === null) setPendingDeleteRow(null);
+        }}
+        onConfirm={() => {
+          if (pendingDeleteRow) void deleteRow(pendingDeleteRow);
+        }}
+      />
     </div>
   );
 }

@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo, useState } from "react";
 import MineOnlyButton from "./mine-only-button";
+import { ReconcileTxnLink, ReimbursementTxnLink } from "./components/txn-actions";
 import type { Transaction } from "@/lib/types";
 
 type SortKey = "total" | "share";
@@ -99,14 +99,16 @@ export default function UnmergedTransactionsSection({
                     ${txn.amount_my_share.toFixed(2)}
                   </td>
                   <td>
-                    <div className="flex flex-col items-start gap-1">
-                      <Link href={`/reconcile?txn_id=${txn.id}`} className="underline">
-                        Reconcile
-                      </Link>
+                    <div className="flex flex-row items-center gap-1">
+                      <ReconcileTxnLink transactionId={txn.id} />
+                      {txn.source === "credit_card" && (
+                        <ReimbursementTxnLink transactionId={txn.id} />
+                      )}
                       <MineOnlyButton
                         transactionId={txn.id}
                         mineOnly={Boolean(txn.mine_only)}
                         compact
+                        iconOnly
                       />
                     </div>
                   </td>

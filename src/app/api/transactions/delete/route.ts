@@ -22,6 +22,8 @@ export async function POST(req: NextRequest) {
     }
 
     d.transaction((id: number) => {
+      d.prepare("DELETE FROM category_suggestions WHERE transaction_id = ?").run(id);
+      d.prepare("DELETE FROM merge_links WHERE transaction_id = ?").run(id);
       d.prepare("DELETE FROM transactions WHERE id = ?").run(id);
       d.prepare(
         `DELETE FROM merge_groups

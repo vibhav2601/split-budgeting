@@ -1,8 +1,13 @@
 import { db } from "./db";
+import {
+  shouldExcludeOtherTxnFromReconcile,
+  shouldExcludeSplitwiseFromReconcile,
+} from "./reconcile-filters";
 import { judgeMerchantMatches } from "./vision";
 import type { MergeSuggestion, Transaction } from "./types";
 
 const DATE_WINDOW_DAYS = 3;
+const FALLBACK_DATE_WINDOW_DAYS = 7;
 const AMOUNT_TOLERANCE = 0.15;
 const MIN_SCORE = 0.45;
 
@@ -35,20 +40,54 @@ function payerScore(sw: Transaction, other: Transaction): number {
   return 0.3;
 }
 
-function normalizeReconcileText(value: string | null | undefined): string {
-  return (value ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
+function fallbackCandidatesForPaidByMe(
+  sw: Transaction,
+  others: Transaction[],
+): Array<{ txn: Transaction; score: number; reasons: string[] }> {
+  if (sw.payer !== "me") return [];
 
-function shouldExcludeSplitwiseFromReconcile(txn: Transaction): boolean {
-  if (txn.source !== "splitwise") return false;
-  if (txn.payer === "other") return true;
+  return others
+    .filter((other) => other.source === "credit_card")
+    .filter((other) => daysBetween(sw.date, other.date) <= FALLBACK_DATE_WINDOW_DAYS)
+    .map((other) => {
+      const dateDiff = daysBetween(sw.date, other.date);
+      const amountDelta = Math.abs(other.amount_total - sw.amount_total);
+      const amountRatio =
+        amountDelta / Math.max(other.amount_total, sw.amount_total, 1);
+      const merchantRelated =
+        Boolean(sw.merchant_normalized) &&
+        Boolean(other.merchant_normalized) &&
+        (sw.merchant_normalized.includes(other.merchant_normalized) ||
+          other.merchant_normalized.includes(sw.merchant_normalized));
 
-  const merchant = normalizeReconcileText(txn.merchant_raw);
-  const description = normalizeReconcileText(txn.description);
-  return merchant.includes("settle all balances") || description.includes("settle all balances");
+      const dateComponent =
+        dateDiff === 0 ? 0.2 : dateDiff <= 1 ? 0.16 : dateDiff <= 3 ? 0.12 : 0.08;
+      const amountComponent =
+        amountRatio <= 0.02
+          ? 0.2
+          : amountRatio <= 0.15
+            ? 0.16
+            : amountRatio <= 0.3
+              ? 0.12
+              : amountRatio <= 0.5
+                ? 0.08
+                : 0.04;
+      const merchantComponent = merchantRelated ? 0.04 : 0;
+      const score = Math.min(0.44, dateComponent + amountComponent + merchantComponent);
+
+      return {
+        txn: other,
+        score,
+        reasons: [
+          "fallback manual-review candidate",
+          `date Δ=${dateDiff.toFixed(0)}d`,
+          `amount ${other.amount_total} vs ${sw.amount_total}`,
+          merchantRelated ? "merchant substring match" : "merchant unclear",
+        ],
+      };
+    })
+    .sort((a, b) => b.score - a.score || b.txn.date.localeCompare(a.txn.date) || b.txn.id - a.txn.id)
+    .slice(0, 5);
 }
 
 function unreconciled(source?: Transaction["source"]): Transaction[] {
@@ -70,7 +109,9 @@ export async function suggestMerges(params: {
   other_txn_id?: number;
 } = {}): Promise<{ suggestions: MergeSuggestion[]; focus_txn: Transaction | null }> {
   const swTxns = unreconciled("splitwise").filter((txn) => !shouldExcludeSplitwiseFromReconcile(txn));
-  let others = [...unreconciled("credit_card"), ...unreconciled("venmo")];
+  let others = [...unreconciled("credit_card"), ...unreconciled("venmo")].filter(
+    (txn) => !shouldExcludeOtherTxnFromReconcile(txn),
+  );
   const focusTxn =
     typeof params.other_txn_id === "number" ? getTransaction(params.other_txn_id) : null;
   if (focusTxn) {
@@ -135,10 +176,10 @@ export async function suggestMerges(params: {
     .filter((p) => p.score >= MIN_SCORE);
 
   const grouped = new Map<number, MergeSuggestion>();
+  for (const sw of swTxns) {
+    grouped.set(sw.id, { splitwise_txn: sw, candidates: [] });
+  }
   for (const p of scored) {
-    if (!grouped.has(p.sw.id)) {
-      grouped.set(p.sw.id, { splitwise_txn: p.sw, candidates: [] });
-    }
     grouped.get(p.sw.id)!.candidates.push({
       txn: p.other,
       score: p.score,
@@ -149,8 +190,15 @@ export async function suggestMerges(params: {
     g.candidates.sort((a, b) => b.score - a.score);
     g.candidates = g.candidates.slice(0, 5);
   }
+  for (const g of grouped.values()) {
+    if (g.candidates.length > 0) continue;
+    g.candidates = fallbackCandidatesForPaidByMe(g.splitwise_txn, others);
+  }
   const suggestions = Array.from(grouped.values()).sort(
-    (a, b) => (b.candidates[0]?.score ?? 0) - (a.candidates[0]?.score ?? 0),
+    (a, b) =>
+      (b.candidates[0]?.score ?? -1) - (a.candidates[0]?.score ?? -1) ||
+      b.splitwise_txn.date.localeCompare(a.splitwise_txn.date) ||
+      b.splitwise_txn.id - a.splitwise_txn.id,
   );
   return { suggestions, focus_txn: focusTxn };
 }
@@ -158,6 +206,7 @@ export async function suggestMerges(params: {
 export function confirmMerge(params: {
   splitwise_txn_id: number;
   other_txn_ids: number[];
+  true_my_share: number;
   notes?: string;
 }): number {
   const d = db();
@@ -165,6 +214,36 @@ export function confirmMerge(params: {
     .prepare("SELECT * FROM transactions WHERE id = ?")
     .get(params.splitwise_txn_id) as Transaction | undefined;
   if (!sw) throw new Error(`splitwise txn ${params.splitwise_txn_id} not found`);
+  if (!Array.isArray(params.other_txn_ids) || params.other_txn_ids.length === 0) {
+    throw new Error("at least one matched transaction is required");
+  }
+  if (!Number.isFinite(params.true_my_share) || params.true_my_share < 0) {
+    throw new Error("true_my_share must be a non-negative number");
+  }
+
+  const otherIds = Array.from(new Set(params.other_txn_ids));
+  const others = otherIds.map((id) =>
+    d.prepare("SELECT * FROM transactions WHERE id = ?").get(id) as Transaction | undefined,
+  );
+  if (others.some((txn) => !txn)) {
+    throw new Error("one or more matched transactions were not found");
+  }
+  const matchedTxns = others as Transaction[];
+  const matchedSource = matchedTxns[0]?.source;
+  if (!matchedSource || matchedSource === "splitwise") {
+    throw new Error("matched transactions must be credit card or venmo");
+  }
+  if (matchedTxns.some((txn) => txn.source !== matchedSource)) {
+    throw new Error("all matched transactions must be from the same source");
+  }
+  for (const other of matchedTxns) {
+    if (other.reconciled) throw new Error("one or more matched transactions are already merged");
+    if (other.mine_only) throw new Error("one or more matched transactions are marked mine only");
+  }
+  const matchedTotal = matchedTxns.reduce((sum, txn) => sum + txn.amount_total, 0);
+  if (params.true_my_share > matchedTotal) {
+    throw new Error("true_my_share cannot exceed matched transaction total");
+  }
 
   const tx = d.transaction((p: typeof params) => {
     const info = d
@@ -172,7 +251,7 @@ export function confirmMerge(params: {
         `INSERT INTO merge_groups(canonical_merchant, canonical_date, true_my_share, notes)
          VALUES(?, ?, ?, ?)`,
       )
-      .run(sw.merchant_raw, sw.date, sw.amount_my_share, p.notes ?? null);
+      .run(sw.merchant_raw, sw.date, p.true_my_share, p.notes ?? null);
     const groupId = info.lastInsertRowid as number;
     const linkStmt = d.prepare(
       `INSERT INTO merge_links(merge_group_id, transaction_id, role) VALUES(?, ?, ?)`,
@@ -182,14 +261,73 @@ export function confirmMerge(params: {
     );
     linkStmt.run(groupId, sw.id, "splitwise_share");
     reconcileStmt.run(sw.id);
-    for (const otherId of p.other_txn_ids) {
-      const other = d
-        .prepare("SELECT * FROM transactions WHERE id = ?")
-        .get(otherId) as Transaction | undefined;
-      if (!other) continue;
+    for (const other of matchedTxns) {
       const role = other.source === "credit_card" ? "cc_charge" : "venmo_settlement";
       linkStmt.run(groupId, other.id, role);
       reconcileStmt.run(other.id);
+    }
+    return groupId;
+  });
+  return tx(params);
+}
+
+export function confirmVenmoReimbursementMerge(params: {
+  credit_card_txn_id: number;
+  venmo_txn_ids: number[];
+  true_my_share: number;
+  notes?: string;
+}): number {
+  const d = db();
+  const cc = d
+    .prepare("SELECT * FROM transactions WHERE id = ?")
+    .get(params.credit_card_txn_id) as Transaction | undefined;
+  if (!cc) throw new Error(`credit card txn ${params.credit_card_txn_id} not found`);
+  if (cc.source !== "credit_card") throw new Error("credit_card_txn_id must be a credit card row");
+  if (cc.reconciled) throw new Error("credit card transaction is already merged");
+  if (cc.mine_only) throw new Error("credit card transaction is marked mine only");
+  if (!Array.isArray(params.venmo_txn_ids) || params.venmo_txn_ids.length === 0) {
+    throw new Error("at least one Venmo reimbursement is required");
+  }
+  if (!Number.isFinite(params.true_my_share) || params.true_my_share < 0) {
+    throw new Error("true_my_share must be a non-negative number");
+  }
+  if (params.true_my_share > cc.amount_total) {
+    throw new Error("true_my_share cannot exceed credit card total");
+  }
+
+  const venmoTxns = params.venmo_txn_ids.map((id) =>
+    d.prepare("SELECT * FROM transactions WHERE id = ?").get(id) as Transaction | undefined,
+  );
+  if (venmoTxns.some((txn) => !txn)) {
+    throw new Error("one or more Venmo reimbursements were not found");
+  }
+  for (const venmo of venmoTxns as Transaction[]) {
+    if (venmo.source !== "venmo") throw new Error("all reimbursement rows must be Venmo");
+    if (venmo.payer !== "other") throw new Error("only received Venmo transactions can reimburse");
+    if (venmo.reconciled) throw new Error("one or more Venmo reimbursements are already merged");
+    if (venmo.mine_only) throw new Error("one or more Venmo reimbursements are marked mine only");
+  }
+
+  const tx = d.transaction((p: typeof params) => {
+    const info = d
+      .prepare(
+        `INSERT INTO merge_groups(canonical_merchant, canonical_date, true_my_share, notes)
+         VALUES(?, ?, ?, ?)`,
+      )
+      .run(cc.merchant_raw, cc.date, p.true_my_share, p.notes ?? null);
+    const groupId = info.lastInsertRowid as number;
+    const linkStmt = d.prepare(
+      `INSERT INTO merge_links(merge_group_id, transaction_id, role) VALUES(?, ?, ?)`,
+    );
+    const reconcileStmt = d.prepare(
+      `UPDATE transactions SET reconciled = 1 WHERE id = ?`,
+    );
+
+    linkStmt.run(groupId, cc.id, "cc_charge");
+    reconcileStmt.run(cc.id);
+    for (const venmo of venmoTxns as Transaction[]) {
+      linkStmt.run(groupId, venmo.id, "venmo_reimbursement");
+      reconcileStmt.run(venmo.id);
     }
     return groupId;
   });

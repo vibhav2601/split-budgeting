@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Budget Reconciler",
-  description: "Reconcile credit card, Venmo, and Splitwise into true personal spend.",
+  description: "Splitwise reconcile credit card, Venmo, and Splitwise into true personal spend.",
 };
 
 export default function RootLayout({
@@ -28,12 +28,13 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col font-sans">
+      <body suppressHydrationWarning className="min-h-full flex flex-col font-sans">
         <nav className="border-b border-black/10 dark:border-white/10 px-6 py-4 flex gap-6 items-center">
           <Link href="/" className="font-semibold">Budget</Link>
           <Link href="/" className="text-sm hover:underline">Dashboard</Link>
           <Link href="/import" className="text-sm hover:underline">Import</Link>
-          <Link href="/reconcile" className="text-sm hover:underline">Reconcile</Link>
+          <Link href="/categorize" className="text-sm hover:underline">Categorize</Link>
+          <Link href="/reconcile" className="text-sm hover:underline">Splitwise Reconcile</Link>
           <Link href="/db" className="text-sm hover:underline">Database</Link>
         </nav>
         <main className="flex-1 p-6 max-w-5xl w-full mx-auto">{children}</main>

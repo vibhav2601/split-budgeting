@@ -1,7 +1,8 @@
 import OpenAI from "openai";
 import { z } from "zod";
+import { CATEGORY_OPTIONS } from "./categories";
 
-const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o";
+export const OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4o";
 
 const ExtractedReceiptSchema = z.object({
   merchant: z.string(),
@@ -41,7 +42,7 @@ export async function extractReceiptFromImage(
   mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif",
 ): Promise<ExtractedReceipt> {
   const res = await client().chat.completions.create({
-    model: MODEL,
+    model: OPENAI_MODEL,
     max_tokens: 1024,
     response_format: { type: "json_object" },
     messages: [
@@ -90,7 +91,7 @@ export async function judgeMerchantMatches(
     )
     .join("\n");
   const res = await client().chat.completions.create({
-    model: MODEL,
+    model: OPENAI_MODEL,
     max_tokens: 2048,
     response_format: { type: "json_object" },
     messages: [
@@ -111,4 +112,94 @@ export async function judgeMerchantMatches(
   } catch {
     return fallback();
   }
+}
+
+const CategorizationResultSchema = z.object({
+  transaction_id: z.number(),
+  category: z.enum(CATEGORY_OPTIONS),
+  reason: z.string(),
+  confidence: z.number().min(0).max(1),
+});
+
+const CategorizationResponseSchema = z.object({
+  results: z.array(CategorizationResultSchema),
+});
+
+const CATEGORIZATION_SYSTEM = `You assign budgeting categories to transactions.
+
+Choose exactly one category from this fixed list:
+${CATEGORY_OPTIONS.join(", ")}
+
+Rules:
+- Return exactly one category per transaction.
+- Prefer the most specific category available.
+- Use "bar/club" for nightlife, alcohol-forward venues, and clubs.
+- Use "coffee/beverages" for coffee shops, cafes, boba, juice, and standalone drinks.
+- Use "takeout food" for delivery apps, pickup, and quick takeaway meals.
+- Use "dining out" for sit-down restaurants and on-premise meals.
+- Use "airlines" for flight tickets, airline fees, and airline-operated services.
+- Use "MISC" only when none of the other categories fit clearly.
+
+Respond with ONLY a JSON object of the form:
+{
+  "results": [
+    {
+      "transaction_id": number,
+      "category": string,
+      "reason": string,
+      "confidence": number
+    }
+  ]
+}`;
+
+export async function suggestTransactionCategories(
+  transactions: Array<{
+    id: number;
+    source: string;
+    date: string;
+    merchant_raw: string;
+    description: string | null;
+    amount_total: number;
+    amount_my_share: number;
+    currency: string;
+  }>,
+): Promise<
+  Array<{
+    transaction_id: number;
+    category: (typeof CATEGORY_OPTIONS)[number];
+    reason: string;
+    confidence: number;
+  }>
+> {
+  if (transactions.length === 0) return [];
+  const prompt = JSON.stringify(
+    {
+      categories: CATEGORY_OPTIONS,
+      transactions,
+    },
+    null,
+    2,
+  );
+  const res = await client().chat.completions.create({
+    model: OPENAI_MODEL,
+    max_tokens: 4096,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: CATEGORIZATION_SYSTEM },
+      { role: "user", content: prompt },
+    ],
+  });
+  const text = res.choices[0]?.message?.content ?? "";
+  const parsed = JSON.parse(text);
+  const body = CategorizationResponseSchema.parse(parsed);
+  const byId = new Map(body.results.map((row) => [row.transaction_id, row]));
+  return transactions
+    .map((txn) => byId.get(txn.id))
+    .filter((row): row is z.infer<typeof CategorizationResultSchema> => Boolean(row))
+    .map((row) => ({
+      transaction_id: row.transaction_id,
+      category: row.category,
+      reason: row.reason,
+      confidence: row.confidence,
+    }));
 }

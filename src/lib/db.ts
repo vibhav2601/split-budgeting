@@ -52,7 +52,7 @@ function migrate(d: Database.Database) {
     CREATE TABLE IF NOT EXISTS merge_links (
       merge_group_id INTEGER NOT NULL REFERENCES merge_groups(id) ON DELETE CASCADE,
       transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
-      role TEXT NOT NULL CHECK(role IN ('cc_charge','splitwise_share','venmo_settlement')),
+      role TEXT NOT NULL CHECK(role IN ('cc_charge','splitwise_share','venmo_settlement','venmo_reimbursement')),
       PRIMARY KEY(merge_group_id, transaction_id)
     );
 
@@ -68,6 +68,16 @@ function migrate(d: Database.Database) {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS category_suggestions (
+      transaction_id INTEGER PRIMARY KEY REFERENCES transactions(id) ON DELETE CASCADE,
+      suggested_category TEXT NOT NULL,
+      reason TEXT,
+      confidence REAL NOT NULL,
+      model TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   const txnColumns = new Set(
@@ -79,6 +89,30 @@ function migrate(d: Database.Database) {
     d.exec("ALTER TABLE transactions ADD COLUMN mine_only INTEGER NOT NULL DEFAULT 0");
   }
   d.exec("CREATE INDEX IF NOT EXISTS idx_txn_mine_only ON transactions(mine_only)");
+
+  const mergeLinksSql = d
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'merge_links'")
+    .get() as { sql: string } | undefined;
+  if (mergeLinksSql && !mergeLinksSql.sql.includes("venmo_reimbursement")) {
+    d.transaction(() => {
+      d.exec(`
+        ALTER TABLE merge_links RENAME TO merge_links_old;
+
+        CREATE TABLE merge_links (
+          merge_group_id INTEGER NOT NULL REFERENCES merge_groups(id) ON DELETE CASCADE,
+          transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+          role TEXT NOT NULL CHECK(role IN ('cc_charge','splitwise_share','venmo_settlement','venmo_reimbursement')),
+          PRIMARY KEY(merge_group_id, transaction_id)
+        );
+
+        INSERT INTO merge_links(merge_group_id, transaction_id, role)
+        SELECT merge_group_id, transaction_id, role
+        FROM merge_links_old;
+
+        DROP TABLE merge_links_old;
+      `);
+    })();
+  }
 }
 
 export function getSetting(key: string): string | null {
@@ -99,6 +133,7 @@ export function setSetting(key: string, value: string) {
 export function clearDatabase() {
   const d = db();
   const reset = d.transaction(() => {
+    d.prepare("DELETE FROM category_suggestions").run();
     d.prepare("DELETE FROM merge_links").run();
     d.prepare("DELETE FROM merge_groups").run();
     d.prepare("DELETE FROM transactions").run();
