@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import TransactionSourceLabel from "@/app/components/transaction-source-label";
 import { CATEGORY_OPTIONS } from "@/lib/categories";
 import type { UncategorizedTransactionRow } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 
 type UncategorizedResponse = {
   rows?: UncategorizedTransactionRow[];
@@ -77,7 +80,6 @@ export default function CategorizeClient() {
         const id = row.transaction.id;
         const prevVal = prev[id];
         const suggested = row.suggestion?.suggested_category ?? "";
-        // `??` skips nullish but not ""; empty draft should still pick up a new GPT suggestion.
         next[id] =
           prevVal !== undefined && prevVal !== "" ? prevVal : suggested;
       }
@@ -186,168 +188,152 @@ export default function CategorizeClient() {
     <div className="space-y-6">
       <header className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Categorize</h1>
-          <p className="text-sm opacity-70 mt-1 max-w-3xl">
-            Review uncategorized transactions across every source. Opening this page
-            asks GPT for any missing suggestions, then you can accept or override them
-            one row at a time.
+          <h1 className="text-2xl font-semibold tracking-tight">Categorize</h1>
+          <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
+            Review uncategorized transactions. Opening this page asks GPT for missing suggestions,
+            then you can accept or override them one by one.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
+          <Button
             onClick={() => void acceptAllSuggestions()}
             disabled={loading || suggesting || bulkSaving || savingId !== null || suggestedCount === 0}
-            className="px-3 py-1.5 text-sm rounded bg-black text-white dark:bg-white dark:text-black disabled:opacity-50"
           >
             {bulkSaving ? "Accepting…" : "Accept all recommendations"}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="outline"
             onClick={() => void refreshQueue()}
             disabled={loading || suggesting || bulkSaving || savingId !== null}
-            className="px-3 py-1.5 text-sm border border-black/20 dark:border-white/20 rounded hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-50"
           >
             {loading || suggesting ? "Refreshing…" : "Refresh"}
-          </button>
+          </Button>
         </div>
       </header>
 
       <section className="grid grid-cols-3 gap-4">
-        <Stat label="Uncategorized" value={rows.length} />
-        <Stat label="With suggestion" value={suggestedCount} />
-        <Stat label="Manual review" value={rows.length - suggestedCount} />
+        <StatCard label="Uncategorized" value={rows.length} />
+        <StatCard label="With suggestion" value={suggestedCount} />
+        <StatCard label="Manual review" value={rows.length - suggestedCount} />
       </section>
 
       {(loading || suggesting) && (
-        <p className="text-sm opacity-60">
+        <p className="text-sm text-muted-foreground">
           {loading ? "Loading uncategorized transactions…" : "Generating GPT suggestions…"}
         </p>
       )}
-      {error && <p className="text-sm text-red-500">{error}</p>}
+      {error && <p className="text-sm text-destructive">{error}</p>}
       {notice && <p className="text-sm text-amber-600 dark:text-amber-400">{notice}</p>}
 
       {!loading && rows.length === 0 ? (
-        <p className="text-sm opacity-60">No uncategorized transactions right now.</p>
+        <p className="text-sm text-muted-foreground">No uncategorized transactions right now.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm align-top">
-            <thead className="text-left opacity-60">
-              <tr>
-                <th className="py-2 pr-4">Date</th>
-                <th className="pr-4">Source</th>
-                <th className="pr-4">Merchant</th>
-                <th className="pr-4 text-right">Amount</th>
-                <th className="pr-4">Suggestion</th>
-                <th className="pr-4">Category</th>
-                <th className="pr-4">Reason</th>
-                <th className="pr-4">Details</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => {
-                const { transaction, suggestion } = row;
-                const draft =
-                  drafts[transaction.id] ??
-                  suggestion?.suggested_category ??
-                  "";
-                const busy = savingId === transaction.id;
-                return (
-                  <tr
-                    key={transaction.id}
-                    className="border-t border-black/5 dark:border-white/5"
-                  >
-                    <td className="py-3 pr-4 font-mono whitespace-nowrap">{transaction.date}</td>
-                    <td className="pr-4 whitespace-nowrap">
-                      <TransactionSourceLabel transaction={transaction} />
-                    </td>
-                    <td className="pr-4 min-w-40">{transaction.merchant_raw}</td>
-                    <td className="pr-4 text-right font-mono whitespace-nowrap">
-                      {formatMoney(transaction.amount_total, transaction.currency)}
-                    </td>
-                    <td className="pr-4 min-w-44">
-                      {suggestion ? (
-                        <div className="space-y-1">
-                          <div className="font-medium">{suggestion.suggested_category}</div>
-                          <div className="text-xs opacity-60">
-                            {Math.round(suggestion.confidence * 100)}% confidence
-                          </div>
-                          <button
-                            type="button"
-                            disabled={busy || bulkSaving}
-                            onClick={() =>
-                              void applyCategory(transaction.id, suggestion.suggested_category)
-                            }
-                            title={busy ? "Saving…" : "Accept suggestion"}
-                            aria-label={busy ? "Saving suggestion…" : "Accept suggestion"}
-                            className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-emerald-600/35 text-emerald-600 hover:bg-emerald-500/10 disabled:opacity-50 dark:border-emerald-400/40 dark:text-emerald-400 dark:hover:bg-emerald-400/10"
-                          >
-                            {busy ? (
-                              <SavingSpinnerIcon className="size-[1.125rem] animate-spin" />
-                            ) : (
-                              <AcceptCheckIcon className="size-[1.125rem]" />
-                            )}
-                          </button>
+        <div className="space-y-2">
+          {rows.map((row) => {
+            const { transaction, suggestion } = row;
+            const draft =
+              drafts[transaction.id] ??
+              suggestion?.suggested_category ??
+              "";
+            const busy = savingId === transaction.id;
+
+            return (
+              <Card key={transaction.id} className="py-3">
+                <CardContent className="flex items-center gap-4 flex-wrap">
+                  {/* Left: merchant + date + source */}
+                  <div className="flex-1 min-w-40 space-y-0.5">
+                    <div className="font-medium">{transaction.merchant_raw}</div>
+                    <div className="text-xs text-muted-foreground font-mono tabular-nums">
+                      {transaction.date} · <TransactionSourceLabel transaction={transaction} />
+                    </div>
+                    {transaction.description?.trim() && (
+                      <div className="text-xs text-muted-foreground">{transaction.description.trim()}</div>
+                    )}
+                  </div>
+
+                  {/* Amount */}
+                  <div className="font-mono tabular-nums text-sm font-medium whitespace-nowrap">
+                    {formatMoney(transaction.amount_total, transaction.currency)}
+                  </div>
+
+                  {/* Suggestion */}
+                  {suggestion && (
+                    <div className="flex items-center gap-2">
+                      <div className="space-y-0.5">
+                        <div className="text-sm font-medium">{suggestion.suggested_category}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {Math.round(suggestion.confidence * 100)}% confidence
                         </div>
-                      ) : (
-                        <span className="text-xs opacity-50">No GPT suggestion yet</span>
-                      )}
-                    </td>
-                    <td className="min-w-56 pr-4">
-                      <div className="flex items-center gap-2">
-                        <select
-                          value={draft}
-                          disabled={busy || bulkSaving}
-                          onChange={(e) =>
-                            setDrafts((prev) => ({
-                              ...prev,
-                              [transaction.id]: e.target.value,
-                            }))
-                          }
-                          className="min-w-44 rounded border border-black/15 dark:border-white/15 bg-transparent px-3 py-2 text-sm"
-                        >
-                          <option value="">Choose a category</option>
-                          {CATEGORY_OPTIONS.map((category) => (
-                            <option key={category} value={category}>
-                              {category}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          disabled={busy || bulkSaving || !draft}
-                          onClick={() => void applyCategory(transaction.id, draft)}
-                          className="px-3 py-2 rounded bg-black text-white dark:bg-white dark:text-black text-sm disabled:opacity-50"
-                        >
-                          {busy ? "Saving…" : "Save"}
-                        </button>
                       </div>
-                    </td>
-                    <td className="min-w-56 text-xs opacity-70">
-                      {suggestion?.reason?.trim() || "—"}
-                    </td>
-                    <td className="pr-4 min-w-56">
-                      <div>{transaction.description?.trim() || "—"}</div>
-                      <div className="text-xs opacity-60 mt-1">
-                        My share {formatMoney(transaction.amount_my_share, transaction.currency)}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      <button
+                        type="button"
+                        disabled={busy || bulkSaving}
+                        onClick={() =>
+                          void applyCategory(transaction.id, suggestion.suggested_category)
+                        }
+                        title={busy ? "Saving…" : "Accept suggestion"}
+                        aria-label={busy ? "Saving suggestion…" : "Accept suggestion"}
+                        className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-emerald-600/35 text-emerald-600 hover:bg-emerald-500/10 disabled:opacity-50 dark:border-emerald-400/40 dark:text-emerald-400 dark:hover:bg-emerald-400/10"
+                      >
+                        {busy ? (
+                          <SavingSpinnerIcon className="size-[1.125rem] animate-spin" />
+                        ) : (
+                          <AcceptCheckIcon className="size-[1.125rem]" />
+                        )}
+                      </button>
+                    </div>
+                  )}
+                  {!suggestion && (
+                    <Badge variant="outline" className="whitespace-nowrap text-muted-foreground">
+                      No suggestion yet
+                    </Badge>
+                  )}
+
+                  {/* Category selector */}
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={draft}
+                      disabled={busy || bulkSaving}
+                      onChange={(e) =>
+                        setDrafts((prev) => ({
+                          ...prev,
+                          [transaction.id]: e.target.value,
+                        }))
+                      }
+                      className="min-w-44 rounded-md border border-border bg-transparent px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+                    >
+                      <option value="">Choose a category</option>
+                      {CATEGORY_OPTIONS.map((category) => (
+                        <option key={category} value={category}>
+                          {category}
+                        </option>
+                      ))}
+                    </select>
+                    <Button
+                      size="sm"
+                      disabled={busy || bulkSaving || !draft}
+                      onClick={() => void applyCategory(transaction.id, draft)}
+                    >
+                      {busy ? "Saving…" : "Save"}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function StatCard({ label, value }: { label: string; value: number }) {
   return (
-    <div className="border border-black/10 dark:border-white/10 rounded p-4">
-      <div className="text-xs uppercase tracking-wide opacity-60">{label}</div>
-      <div className="text-2xl font-mono mt-1">{value}</div>
-    </div>
+    <Card>
+      <CardContent className="py-4">
+        <div className="text-xs uppercase tracking-wider text-muted-foreground font-medium">{label}</div>
+        <div className="text-2xl font-mono tabular-nums font-semibold tracking-tight mt-1">{value}</div>
+      </CardContent>
+    </Card>
   );
 }

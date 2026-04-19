@@ -1,6 +1,7 @@
 import Link from "next/link";
 import MineOnlyButton from "@/app/mine-only-button";
 import ReconcileSearchResultsTable from "@/app/reconcile/search/results-table";
+import { Card, CardContent } from "@/components/ui/card";
 import { db } from "@/lib/db";
 import {
   shouldExcludeOtherTxnFromReconcile,
@@ -144,22 +145,38 @@ export default async function ReconcileSearchPage({ searchParams }: SearchPagePr
     <div className="space-y-6">
       <header className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Search Credit Card Transactions</h1>
-          <p className="text-sm opacity-70 mt-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Search Credit Card Transactions</h1>
+          <p className="text-sm text-muted-foreground mt-1">
             Pick a Splitwise transaction from reconcile, then search unreconciled
             credit-card transactions to merge into it.
           </p>
         </div>
         <Link
           href="/reconcile"
-          className="px-3 py-1.5 text-sm border border-black/20 dark:border-white/20 rounded hover:bg-black/5 dark:hover:bg-white/10"
+          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 text-sm font-medium transition-colors hover:bg-muted whitespace-nowrap"
         >
-          Back to reconcile
+          ← Back to reconcile
         </Link>
       </header>
 
+      {/* Secondary nav */}
+      <nav className="flex gap-1 border-b border-border pb-3">
+        <Link
+          href="/reconcile"
+          className="px-3 py-1.5 text-sm rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors"
+        >
+          Queue
+        </Link>
+        <Link
+          href="/reconcile/search"
+          className="px-3 py-1.5 text-sm rounded-md bg-muted font-medium transition-colors"
+        >
+          Search
+        </Link>
+      </nav>
+
       {!splitwiseTxn && (
-        <p className="text-sm opacity-60">
+        <p className="text-sm text-muted-foreground">
           Open this page from a Splitwise row in{" "}
           <Link href="/reconcile" className="underline">
             Splitwise Reconcile
@@ -169,32 +186,34 @@ export default async function ReconcileSearchPage({ searchParams }: SearchPagePr
       )}
 
       {splitwiseTxn && shouldExcludeSplitwiseFromReconcile(splitwiseTxn) && (
-        <p className="text-sm opacity-60">
+        <p className="text-sm text-muted-foreground">
           This Splitwise transaction is excluded from reconcile.
         </p>
       )}
 
       {splitwiseTxn && !shouldExcludeSplitwiseFromReconcile(splitwiseTxn) && (
         <>
-          <section className="border border-black/10 dark:border-white/10 rounded p-4">
-            <div className="text-xs uppercase opacity-60">Splitwise transaction</div>
-            <div className="font-medium mt-1">{splitwiseTxn.merchant_raw}</div>
-            <div className="text-sm opacity-70 font-mono">
-              {splitwiseTxn.date} · total ${splitwiseTxn.amount_total.toFixed(2)} ·
-              my share ${splitwiseTxn.amount_my_share.toFixed(2)} ·
-              paid by {splitwiseTxn.payer}
-            </div>
-            {splitwiseTxn.raw_json && (
-              <details className="mt-3">
-                <summary className="cursor-pointer text-sm underline underline-offset-2">
-                  View Splitwise raw JSON
-                </summary>
-                <pre className="mt-2 text-xs p-3 rounded bg-black/5 dark:bg-white/5 overflow-x-auto">
-                  {prettyJson(splitwiseTxn.raw_json)}
-                </pre>
-              </details>
-            )}
-          </section>
+          <Card>
+            <CardContent>
+              <div className="text-xs uppercase text-muted-foreground tracking-wide">Splitwise transaction</div>
+              <div className="font-medium mt-1">{splitwiseTxn.merchant_raw}</div>
+              <div className="text-sm text-muted-foreground font-mono tabular-nums">
+                {splitwiseTxn.date} · total ${splitwiseTxn.amount_total.toFixed(2)} ·
+                my share ${splitwiseTxn.amount_my_share.toFixed(2)} ·
+                paid by {splitwiseTxn.payer}
+              </div>
+              {splitwiseTxn.raw_json && (
+                <details className="mt-3">
+                  <summary className="cursor-pointer text-sm underline underline-offset-2 text-muted-foreground">
+                    View Splitwise raw JSON
+                  </summary>
+                  <pre className="mt-2 text-xs p-3 rounded-lg bg-muted overflow-x-auto">
+                    {prettyJson(splitwiseTxn.raw_json)}
+                  </pre>
+                </details>
+              )}
+            </CardContent>
+          </Card>
 
           <form id="reconcile-search-form" method="GET" className="grid gap-3">
             <input type="hidden" name="splitwise_txn_id" value={splitwiseTxn.id} />
@@ -204,45 +223,40 @@ export default async function ReconcileSearchPage({ searchParams }: SearchPagePr
                 name="q"
                 defaultValue={query}
                 placeholder="Search merchant, date, amount, or category"
-                className="w-full rounded border border-black/15 dark:border-white/15 bg-transparent px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
               />
               <button
                 type="submit"
-                className="px-4 py-2 rounded bg-black text-white dark:bg-white dark:text-black text-sm"
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-all hover:bg-primary/80"
               >
                 Search
               </button>
             </div>
             <label className="grid gap-2 text-sm md:grid-cols-[auto_minmax(0,1fr)_auto_minmax(0,1fr)] md:items-center">
-              <span className="opacity-70">Date range</span>
+              <span className="text-muted-foreground">Date range</span>
               <input
                 type="date"
                 name="date_from"
                 defaultValue={dateFrom}
-                className="w-full rounded border border-black/15 dark:border-white/15 bg-transparent px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
               />
-              <span className="text-center opacity-60">-</span>
+              <span className="text-center text-muted-foreground">-</span>
               <input
                 type="date"
                 name="date_to"
                 defaultValue={dateTo}
-                className="w-full rounded border border-black/15 dark:border-white/15 bg-transparent px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
               />
             </label>
           </form>
 
-          <p className="text-xs opacity-60">
-            Time filtering is not available yet because imported transactions currently store
-            dates but not timestamps.
-          </p>
-
-          <p className="text-sm opacity-60">
+          <p className="text-sm text-muted-foreground">
             Showing {creditCardTransactions.length} unreconciled credit-card transaction
             {creditCardTransactions.length === 1 ? "" : "s"} in this search.
           </p>
 
           {creditCardTransactions.length === 0 && selectedCreditCardTransactions.length === 0 ? (
-            <p className="text-sm opacity-60">
+            <p className="text-sm text-muted-foreground">
               No credit-card transactions match this search.
             </p>
           ) : (

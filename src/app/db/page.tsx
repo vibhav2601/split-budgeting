@@ -1,4 +1,7 @@
 import SourceSectionTable from "./source-section-table";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { db } from "@/lib/db";
 import type { Source, Transaction } from "@/lib/types";
 
@@ -65,7 +68,10 @@ function loadData(): { sections: SourceSection[]; imports: ImportBatch[] } {
 }
 
 function sourceLabel(source: string): string {
-  return source.replaceAll("_", " ");
+  return source
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
 }
 
 export default function DatabasePage() {
@@ -83,108 +89,129 @@ export default function DatabasePage() {
   return (
     <div className="space-y-8">
       <header>
-        <h1 className="text-2xl font-semibold">Database</h1>
-        <p className="text-sm opacity-70 mt-1">
+        <h1 className="text-2xl font-semibold tracking-tight">Database</h1>
+        <p className="text-sm text-muted-foreground mt-1">
           Inspect the SQLite contents grouped by transaction source.
-          Import history is shown separately because current transactions are
-          not linked back to individual batch ids.
+          Import history is shown separately.
         </p>
       </header>
 
       <section className="grid grid-cols-4 gap-4">
-        <Stat label="Transactions" value={totalTxns} />
-        <Stat label="Pending review" value={totalPending} />
-        <Stat label="Mine only" value={totalMineOnly} />
-        <Stat label="Import batches" value={imports.length} />
+        <StatCard label="Transactions" value={totalTxns} />
+        <StatCard label="Pending review" value={totalPending} />
+        <StatCard label="Mine only" value={totalMineOnly} />
+        <StatCard label="Import batches" value={imports.length} />
       </section>
 
-      <section className="border border-black/10 dark:border-white/10 rounded p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-medium">Import history</h2>
-          <span className="text-xs uppercase opacity-60">import_batches</span>
-        </div>
+      {/* Import History — collapsed by default */}
+      <CollapsibleSection
+        title="Import history"
+        count={imports.length}
+        defaultOpen={false}
+      >
         {imports.length === 0 ? (
-          <p className="text-sm opacity-60">No imports recorded yet.</p>
+          <p className="text-sm text-muted-foreground">No imports recorded yet.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="text-left opacity-60">
-                <tr>
-                  <th className="py-2 pr-4">When</th>
-                  <th className="pr-4">Source</th>
-                  <th className="pr-4">Filename</th>
-                  <th className="text-right">Rows</th>
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="py-2.5 text-left text-xs font-medium text-muted-foreground">When</th>
+                  <th className="py-2.5 pl-4 text-left text-xs font-medium text-muted-foreground">Source</th>
+                  <th className="py-2.5 pl-4 text-left text-xs font-medium text-muted-foreground">Filename</th>
+                  <th className="py-2.5 pl-4 text-right text-xs font-medium text-muted-foreground">Rows</th>
                 </tr>
               </thead>
               <tbody>
                 {imports.map((batch) => (
-                  <tr
-                    key={batch.id}
-                    className="border-t border-black/5 dark:border-white/5"
-                  >
-                    <td className="py-1 pr-4 font-mono">{batch.imported_at}</td>
-                    <td className="pr-4">{sourceLabel(batch.source)}</td>
-                    <td className="pr-4">{batch.filename && batch.filename.trim() ? batch.filename : "—"}</td>
-                    <td className="text-right font-mono">{batch.row_count}</td>
+                  <tr key={batch.id} className="border-t border-border/60">
+                    <td className="py-1.5 font-mono tabular-nums text-muted-foreground">{batch.imported_at}</td>
+                    <td className="py-1.5 pl-4">{sourceLabel(batch.source)}</td>
+                    <td className="py-1.5 pl-4 text-muted-foreground">{batch.filename?.trim() || "—"}</td>
+                    <td className="py-1.5 pl-4 text-right font-mono tabular-nums">{batch.row_count}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
-      </section>
+      </CollapsibleSection>
 
-      <div className="space-y-6">
+      {/* Source sections — collapsed by default */}
+      <div className="space-y-4">
         {sections.map((section) => (
-          <section
+          <CollapsibleSection
             key={section.source}
-            className="border border-black/10 dark:border-white/10 rounded p-4 space-y-4"
+            title={sourceLabel(section.source)}
+            count={section.summary.total ?? 0}
+            subtitle={
+              section.summary.total > 0 && section.summary.start_date
+                ? `${section.summary.start_date} to ${section.summary.end_date} · Pending ${section.summary.pending ?? 0} · Mine only ${section.summary.mine_only ?? 0} · Merged ${section.summary.reconciled ?? 0}`
+                : undefined
+            }
+            defaultOpen={false}
           >
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-medium capitalize">
-                  {sourceLabel(section.source)}
-                </h2>
-                <p className="text-sm opacity-60 mt-1">
-                  {section.summary.total === 0
-                    ? "No rows in this source."
-                    : `Date range ${section.summary.start_date} to ${section.summary.end_date}`}
-                </p>
-              </div>
-              <div className="grid grid-cols-4 gap-3 text-sm">
-                <MiniStat label="Rows" value={section.summary.total ?? 0} />
-                <MiniStat label="Pending" value={section.summary.pending ?? 0} />
-                <MiniStat label="Mine only" value={section.summary.mine_only ?? 0} />
-                <MiniStat label="Merged" value={section.summary.reconciled ?? 0} />
-              </div>
-            </div>
-
             {section.rows.length === 0 ? (
-              <p className="text-sm opacity-60">Nothing imported for this source.</p>
+              <p className="text-sm text-muted-foreground">Nothing imported for this source.</p>
             ) : (
               <SourceSectionTable source={section.source} initialRows={section.rows} />
             )}
-          </section>
+          </CollapsibleSection>
         ))}
       </div>
     </div>
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function CollapsibleSection({
+  title,
+  count,
+  subtitle,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  count: number;
+  subtitle?: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="border border-black/10 dark:border-white/10 rounded p-4">
-      <div className="text-xs uppercase tracking-wide opacity-60">{label}</div>
-      <div className="text-2xl font-mono mt-1">{value}</div>
-    </div>
+    <Collapsible defaultOpen={defaultOpen}>
+      <Card>
+        <CardHeader>
+          <CollapsibleTrigger className="flex items-center justify-between w-full text-left cursor-pointer">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2">
+                <CardTitle>{title}</CardTitle>
+                <Badge variant="secondary">{count}</Badge>
+              </div>
+              {subtitle && (
+                <p className="text-xs text-muted-foreground font-normal">{subtitle}</p>
+              )}
+            </div>
+            <span className="text-xs text-muted-foreground font-medium ml-4 shrink-0">
+              Expand ↕
+            </span>
+          </CollapsibleTrigger>
+        </CardHeader>
+        <CollapsibleContent>
+          <CardContent>
+            {children}
+          </CardContent>
+        </CollapsibleContent>
+      </Card>
+    </Collapsible>
   );
 }
 
-function MiniStat({ label, value }: { label: string; value: number }) {
+function StatCard({ label, value }: { label: string; value: number }) {
   return (
-    <div className="border border-black/10 dark:border-white/10 rounded px-3 py-2 text-right">
-      <div className="text-[10px] uppercase tracking-wide opacity-60">{label}</div>
-      <div className="font-mono">{value}</div>
-    </div>
+    <Card>
+      <CardContent className="py-4">
+        <div className="text-xs uppercase tracking-wider text-muted-foreground font-medium">{label}</div>
+        <div className="text-2xl font-mono tabular-nums font-semibold tracking-tight mt-1">{value}</div>
+      </CardContent>
+    </Card>
   );
 }

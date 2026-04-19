@@ -1,6 +1,7 @@
 import Link from "next/link";
 import MineOnlyButton from "@/app/mine-only-button";
 import ReimbursementConfirmButton from "@/app/reimbursements/confirm-button";
+import { Card, CardContent } from "@/components/ui/card";
 import { db } from "@/lib/db";
 import { shouldExcludeOtherTxnFromReconcile, transactionMatchesSearch } from "@/lib/reconcile-filters";
 import type { Transaction } from "@/lib/types";
@@ -85,35 +86,37 @@ export default async function ReimbursementSearchPage({ searchParams }: SearchPa
     <div className="space-y-6">
       <header className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Merge Venmo Reimbursements</h1>
-          <p className="text-sm opacity-70 mt-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Merge Venmo Reimbursements</h1>
+          <p className="text-sm text-muted-foreground mt-1">
             Search received Venmo transactions and subtract them from a credit-card charge.
           </p>
         </div>
         <Link
           href="/"
-          className="px-3 py-1.5 text-sm border border-black/20 dark:border-white/20 rounded hover:bg-black/5 dark:hover:bg-white/10"
+          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 text-sm font-medium transition-colors hover:bg-muted whitespace-nowrap"
         >
-          Back to dashboard
+          ← Dashboard
         </Link>
       </header>
 
       {!creditCardTxn && (
-        <p className="text-sm opacity-60">
+        <p className="text-sm text-muted-foreground">
           Open this page from a credit-card transaction to merge received Venmo reimbursements into it.
         </p>
       )}
 
       {creditCardTxn && (
         <>
-          <section className="border border-black/10 dark:border-white/10 rounded p-4">
-            <div className="text-xs uppercase opacity-60">Credit card transaction</div>
-            <div className="font-medium mt-1">{creditCardTxn.merchant_raw}</div>
-            <div className="text-sm opacity-70 font-mono">
-              {creditCardTxn.date} · total ${creditCardTxn.amount_total.toFixed(2)} ·
-              category {creditCardTxn.category ?? "—"}
-            </div>
-          </section>
+          <Card>
+            <CardContent>
+              <div className="text-xs uppercase text-muted-foreground tracking-wide">Credit card transaction</div>
+              <div className="font-medium mt-1">{creditCardTxn.merchant_raw}</div>
+              <div className="text-sm text-muted-foreground font-mono tabular-nums">
+                {creditCardTxn.date} · total ${creditCardTxn.amount_total.toFixed(2)} ·
+                category {creditCardTxn.category ?? "—"}
+              </div>
+            </CardContent>
+          </Card>
 
           <form method="GET" className="space-y-3">
             <input type="hidden" name="credit_card_txn_id" value={creditCardTxn.id} />
@@ -123,18 +126,18 @@ export default async function ReimbursementSearchPage({ searchParams }: SearchPa
                 name="q"
                 defaultValue={query}
                 placeholder="Search Venmo merchant, date, amount, or description"
-                className="w-full rounded border border-black/15 dark:border-white/15 bg-transparent px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
               />
               <button
                 type="submit"
-                className="px-4 py-2 rounded bg-black text-white dark:bg-white dark:text-black text-sm"
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-all hover:bg-primary/80"
               >
                 Search
               </button>
             </div>
 
-            <p className="text-sm opacity-60">
-              Selected reimbursements: {selectedVenmo.length} · ${selectedTotal.toFixed(2)}
+            <p className="text-sm text-muted-foreground">
+              Selected reimbursements: {selectedVenmo.length} · <span className="font-mono tabular-nums">${selectedTotal.toFixed(2)}</span>
             </p>
 
             {selectedVenmo.length > 0 && (
@@ -143,58 +146,62 @@ export default async function ReimbursementSearchPage({ searchParams }: SearchPa
                   creditCardTxn={creditCardTxn}
                   venmoTxns={selectedVenmo}
                   label="Merge selected reimbursements"
-                  className="px-3 py-2 text-sm rounded bg-black text-white dark:bg-white dark:text-black"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-sm font-medium text-primary-foreground transition-all hover:bg-primary/80"
                 />
-                <span className="text-xs opacity-60">
-                  Net default = ${(Math.max(0, creditCardTxn.amount_total - selectedTotal)).toFixed(2)}
+                <span className="text-xs text-muted-foreground">
+                  Net default = <span className="font-mono tabular-nums">${(Math.max(0, creditCardTxn.amount_total - selectedTotal)).toFixed(2)}</span>
                 </span>
               </div>
             )}
 
             {venmoTransactions.length === 0 ? (
-              <p className="text-sm opacity-60">
+              <p className="text-sm text-muted-foreground">
                 No received Venmo transactions match this search.
               </p>
             ) : (
-              <div className="overflow-x-auto rounded border border-black/10 dark:border-white/10">
-                <table className="w-full text-sm">
-                  <thead className="text-left opacity-60">
-                    <tr>
-                      <th className="py-2 px-3">Select</th>
-                      <th className="px-3">Date</th>
-                      <th className="px-3">Merchant</th>
-                      <th className="px-3">Description</th>
-                      <th className="px-3 text-right">Total</th>
-                      <th className="px-3">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {venmoTransactions.map((txn) => (
-                      <tr key={txn.id} className="border-t border-black/5 dark:border-white/5">
-                        <td className="py-2 px-3">
-                          <input
-                            type="checkbox"
-                            name="selected"
-                            value={txn.id}
-                            defaultChecked={selectedIds.has(txn.id)}
-                          />
-                        </td>
-                        <td className="px-3 font-mono">{txn.date}</td>
-                        <td className="px-3 font-medium">{txn.merchant_raw}</td>
-                        <td className="px-3">{txn.description ?? "—"}</td>
-                        <td className="px-3 text-right font-mono">${txn.amount_total.toFixed(2)}</td>
-                        <td className="px-3">
-                          <MineOnlyButton
-                            transactionId={txn.id}
-                            mineOnly={Boolean(txn.mine_only)}
-                            compact
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <Card>
+                <CardContent className="px-0 pb-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border">
+                          <th className="py-2.5 px-4 text-left text-xs font-medium text-muted-foreground">Select</th>
+                          <th className="py-2.5 px-3 text-left text-xs font-medium text-muted-foreground">Date</th>
+                          <th className="py-2.5 px-3 text-left text-xs font-medium text-muted-foreground">Merchant</th>
+                          <th className="py-2.5 px-3 text-left text-xs font-medium text-muted-foreground">Description</th>
+                          <th className="py-2.5 px-3 text-right text-xs font-medium text-muted-foreground">Total</th>
+                          <th className="py-2.5 px-3 text-left text-xs font-medium text-muted-foreground">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {venmoTransactions.map((txn) => (
+                          <tr key={txn.id} className="border-t border-border/60 hover:bg-muted/30 transition-colors">
+                            <td className="py-2 px-4">
+                              <input
+                                type="checkbox"
+                                name="selected"
+                                value={txn.id}
+                                defaultChecked={selectedIds.has(txn.id)}
+                              />
+                            </td>
+                            <td className="py-2 px-3 font-mono tabular-nums text-muted-foreground">{txn.date}</td>
+                            <td className="py-2 px-3 font-medium">{txn.merchant_raw}</td>
+                            <td className="py-2 px-3 text-muted-foreground">{txn.description ?? "—"}</td>
+                            <td className="py-2 px-3 text-right font-mono tabular-nums">${txn.amount_total.toFixed(2)}</td>
+                            <td className="py-2 px-3">
+                              <MineOnlyButton
+                                transactionId={txn.id}
+                                mineOnly={Boolean(txn.mine_only)}
+                                compact
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
             )}
           </form>
         </>

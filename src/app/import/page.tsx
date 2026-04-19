@@ -8,6 +8,8 @@ import {
   type CSVPreviewResult,
 } from "@/lib/csv-import";
 import type { Source } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 type Result = { ok: boolean; body: unknown };
 
@@ -120,245 +122,243 @@ export default function ImportPage() {
   }
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-8">
       <header>
-        <h1 className="text-2xl font-semibold">Import</h1>
-        <p className="text-sm opacity-70 mt-1">
+        <h1 className="text-2xl font-semibold tracking-tight">Import</h1>
+        <p className="text-sm text-muted-foreground mt-1">
           Review CSV columns before import. The app recommends a source and
           mappings, then you verify them against a live preview.
         </p>
       </header>
 
-      <Section
-        title="CSV review"
-        hint="Upload a CSV, inspect the preview, confirm the source, then map each field before importing."
-      >
-        <input
-          type="file"
-          accept=".csv,text/csv"
-          disabled={busy !== null}
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) previewCsv(f);
-            e.target.value = "";
-          }}
-        />
+      {/* CSV Import */}
+      <Card>
+        <CardHeader>
+          <CardTitle>CSV review</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Upload a CSV, inspect the preview, confirm the source, then map each field before importing.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            disabled={busy !== null}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) previewCsv(f);
+              e.target.value = "";
+            }}
+            className="text-sm"
+          />
 
-        {csvPreview && (
-          <div className="space-y-5">
-            <div className="flex flex-wrap items-center gap-3 text-sm">
-              <span className="opacity-60">File:</span>
-              <span className="font-medium">{csvFile?.name}</span>
-              {csvPreview.recommended_source && (
-                <>
-                  <span className="opacity-30">|</span>
-                  <span className="opacity-60">Recommended source:</span>
-                  <span className="font-medium">
-                    {SOURCE_LABELS[csvPreview.recommended_source]}
-                  </span>
-                </>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Source</div>
-              <div className="flex flex-wrap gap-2">
-                {(Object.keys(SOURCE_LABELS) as Source[]).map((source) => (
-                  <button
-                    key={source}
-                    type="button"
-                    disabled={busy !== null}
-                    onClick={() => applySource(source)}
-                    className={`px-3 py-1.5 rounded border text-sm ${
-                      csvSource === source
-                        ? "border-black/50 bg-black text-white dark:border-white/50 dark:bg-white dark:text-black"
-                        : "border-black/15 hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/10"
-                    }`}
-                  >
-                    {SOURCE_LABELS[source]}
-                  </button>
-                ))}
+          {csvPreview && (
+            <div className="space-y-5">
+              <div className="flex flex-wrap items-center gap-3 text-sm">
+                <span className="text-muted-foreground">File:</span>
+                <span className="font-medium">{csvFile?.name}</span>
+                {csvPreview.recommended_source && (
+                  <>
+                    <span className="text-muted-foreground">|</span>
+                    <span className="text-muted-foreground">Recommended source:</span>
+                    <span className="font-medium">
+                      {SOURCE_LABELS[csvPreview.recommended_source]}
+                    </span>
+                  </>
+                )}
               </div>
-            </div>
 
-            <div className="grid gap-3 md:grid-cols-2">
-              {CSV_FIELD_DEFS[csvSource].map((field) => {
-                const missing = field.required && !csvMapping[field.key];
-                return (
-                  <label
-                    key={field.key}
-                    className={`rounded border p-3 space-y-2 ${
-                      missing
-                        ? "border-red-500/40 bg-red-500/5"
-                        : "border-black/10 dark:border-white/10"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-medium">{field.label}</span>
-                      <span className="text-xs opacity-60">
-                        {field.required ? "Required" : "Optional"}
-                      </span>
-                    </div>
-                    <select
-                      value={csvMapping[field.key] ?? ""}
+              <div className="space-y-2">
+                <div className="text-sm font-medium">Source</div>
+                <div className="flex flex-wrap gap-2">
+                  {(Object.keys(SOURCE_LABELS) as Source[]).map((source) => (
+                    <button
+                      key={source}
+                      type="button"
                       disabled={busy !== null}
-                      onChange={(e) => updateMapping(field.key, e.target.value)}
-                      className="w-full rounded border border-black/15 dark:border-white/15 bg-transparent px-3 py-2 text-sm"
+                      onClick={() => applySource(source)}
+                      className={`px-3 py-1.5 rounded-md border text-sm transition-colors ${
+                        csvSource === source
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border hover:bg-muted"
+                      }`}
                     >
-                      <option value="">Select a column</option>
-                      {csvPreview.headers.map((header) => (
-                        <option key={header} value={header}>
-                          {header}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                );
-              })}
-            </div>
-
-            {csvSource === "splitwise" && (
-              <label className="block space-y-2">
-                <span className="text-sm font-medium">My Splitwise name</span>
-                <input
-                  value={csvMyName}
-                  disabled={busy !== null}
-                  onChange={(e) => setCsvMyName(e.target.value)}
-                  placeholder="Optional, used to read the paid by column"
-                  className="w-full rounded border border-black/15 dark:border-white/15 bg-transparent px-3 py-2 text-sm"
-                />
-              </label>
-            )}
-
-            {csvPreview.warnings.length > 0 && (
-              <div className="rounded border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
-                <div className="font-medium mb-1">Recommendations need review</div>
-                <ul className="space-y-1 opacity-80">
-                  {csvPreview.warnings.map((warning) => (
-                    <li key={warning}>{warning}</li>
+                      {SOURCE_LABELS[source]}
+                    </button>
                   ))}
-                </ul>
-              </div>
-            )}
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <h3 className="text-sm font-medium">CSV preview</h3>
-                  <p className="text-xs opacity-60">
-                    First {csvPreview.sample_rows.length} rows shown exactly as the file was read.
-                  </p>
                 </div>
-                <button
-                  type="button"
-                  disabled={busy !== null || missingRequired.length > 0}
-                  onClick={importCsv}
-                  className="px-4 py-2 rounded bg-black text-white dark:bg-white dark:text-black text-sm disabled:opacity-50"
-                >
-                  {busy === "csv-import" ? "Importing…" : "Import CSV"}
-                </button>
               </div>
 
-              {missingRequired.length > 0 && (
-                <p className="text-sm text-red-500">
-                  Assign all required fields before importing.
-                </p>
+              <div className="grid gap-3 md:grid-cols-2">
+                {CSV_FIELD_DEFS[csvSource].map((field) => {
+                  const missing = field.required && !csvMapping[field.key];
+                  return (
+                    <label
+                      key={field.key}
+                      className={`rounded-lg border p-3 space-y-2 ${
+                        missing
+                          ? "border-destructive/40 bg-destructive/5"
+                          : "border-border"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-sm font-medium">{field.label}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {field.required ? "Required" : "Optional"}
+                        </span>
+                      </div>
+                      <select
+                        value={csvMapping[field.key] ?? ""}
+                        disabled={busy !== null}
+                        onChange={(e) => updateMapping(field.key, e.target.value)}
+                        className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                      >
+                        <option value="">Select a column</option>
+                        {csvPreview.headers.map((header) => (
+                          <option key={header} value={header}>
+                            {header}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  );
+                })}
+              </div>
+
+              {csvSource === "splitwise" && (
+                <label className="block space-y-2">
+                  <span className="text-sm font-medium">My Splitwise name</span>
+                  <input
+                    value={csvMyName}
+                    disabled={busy !== null}
+                    onChange={(e) => setCsvMyName(e.target.value)}
+                    placeholder="Optional, used to read the paid by column"
+                    className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                </label>
               )}
 
-              <div className="overflow-x-auto rounded border border-black/10 dark:border-white/10">
-                <table className="min-w-full text-xs">
-                  <thead className="bg-black/[0.03] dark:bg-white/[0.04]">
-                    <tr>
-                      {csvPreview.headers.map((header) => (
-                        <th key={header} className="px-3 py-2 text-left font-medium">
-                          {header}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {csvPreview.sample_rows.map((row, idx) => (
-                      <tr
-                        key={idx}
-                        className="border-t border-black/5 dark:border-white/5 align-top"
-                      >
+              {csvPreview.warnings.length > 0 && (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+                  <div className="font-medium mb-1">Recommendations need review</div>
+                  <ul className="space-y-1 text-muted-foreground">
+                    {csvPreview.warnings.map((warning) => (
+                      <li key={warning}>{warning}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <h3 className="text-sm font-medium">CSV preview</h3>
+                    <p className="text-xs text-muted-foreground">
+                      First {csvPreview.sample_rows.length} rows shown exactly as the file was read.
+                    </p>
+                  </div>
+                  <Button
+                    disabled={busy !== null || missingRequired.length > 0}
+                    onClick={importCsv}
+                  >
+                    {busy === "csv-import" ? "Importing…" : "Import CSV"}
+                  </Button>
+                </div>
+
+                {missingRequired.length > 0 && (
+                  <p className="text-sm text-destructive">
+                    Assign all required fields before importing.
+                  </p>
+                )}
+
+                <div className="overflow-x-auto rounded-lg border border-border">
+                  <table className="min-w-full text-xs">
+                    <thead className="bg-muted/50">
+                      <tr>
                         {csvPreview.headers.map((header) => (
-                          <td key={header} className="px-3 py-2 whitespace-pre-wrap">
-                            {row[header] || <span className="opacity-30">-</span>}
-                          </td>
+                          <th key={header} className="px-3 py-2 text-left font-medium text-muted-foreground">
+                            {header}
+                          </th>
                         ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {csvPreview.sample_rows.map((row, idx) => (
+                        <tr
+                          key={idx}
+                          className="border-t border-border/60 align-top"
+                        >
+                          {csvPreview.headers.map((header) => (
+                            <td key={header} className="px-3 py-2 whitespace-pre-wrap">
+                              {row[header] || <span className="text-muted-foreground/40">-</span>}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        <Result r={csvResult} />
-      </Section>
+          <ResultDisplay r={csvResult} />
+        </CardContent>
+      </Card>
 
-      <Section
-        title="Screenshot"
-        hint="Receipt, Venmo screen, or Splitwise screen. Parsed with OpenAI vision."
-      >
-        <input
-          type="file"
-          accept="image/*"
-          disabled={busy !== null}
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) postFile("/api/import/screenshot", f, setImgResult);
-            e.target.value = "";
-          }}
-        />
-        <Result r={imgResult} />
-      </Section>
+      {/* Screenshot Import */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Screenshot</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Receipt, Venmo screen, or Splitwise screen. Parsed with OpenAI vision.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <input
+            type="file"
+            accept="image/*"
+            disabled={busy !== null}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) postFile("/api/import/screenshot", f, setImgResult);
+              e.target.value = "";
+            }}
+            className="text-sm"
+          />
+          <ResultDisplay r={imgResult} />
+        </CardContent>
+      </Card>
 
-      <Section
-        title="Splitwise sync"
-        hint="Requires SPLITWISE_API_KEY in .env.local. Pulls everything since the last sync."
-      >
-        <button
-          className="px-4 py-2 border border-black/20 dark:border-white/20 rounded hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-50"
-          disabled={busy !== null}
-          onClick={syncSplitwise}
-        >
-          {busy === "splitwise" ? "Syncing…" : "Sync now"}
-        </button>
-        <Result r={syncResult} />
-      </Section>
+      {/* Splitwise Sync */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Splitwise sync</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Requires SPLITWISE_API_KEY in .env.local. Pulls everything since the last sync.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Button
+            variant="outline"
+            disabled={busy !== null}
+            onClick={syncSplitwise}
+          >
+            {busy === "splitwise" ? "Syncing…" : "Sync now"}
+          </Button>
+          <ResultDisplay r={syncResult} />
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
-function Section({
-  title,
-  hint,
-  children,
-}: {
-  title: string;
-  hint: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="border border-black/10 dark:border-white/10 rounded p-5 space-y-3">
-      <div>
-        <h2 className="text-lg font-medium">{title}</h2>
-        <p className="text-sm opacity-60">{hint}</p>
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function Result({ r }: { r: Result | null }) {
+function ResultDisplay({ r }: { r: Result | null }) {
   if (!r) return null;
   return (
     <pre
-      className={`text-xs p-3 rounded overflow-auto ${
-        r.ok ? "bg-green-500/10" : "bg-red-500/10"
+      className={`text-xs p-3 rounded-lg overflow-auto ${
+        r.ok ? "bg-green-500/10 text-green-800 dark:text-green-300" : "bg-destructive/10 text-destructive"
       }`}
     >
       {JSON.stringify(r.body, null, 2)}

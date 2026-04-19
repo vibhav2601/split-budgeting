@@ -2,6 +2,51 @@ import type Database from "better-sqlite3";
 
 export const VENMO_ADJUSTMENTS_CATEGORY = "Venmo adjustments";
 
+export type MonthlyStats = {
+  total: number;
+  reconciled: number;
+  pending: number;
+};
+
+export type CategoryCount = {
+  category: string;
+  count: number;
+};
+
+export function loadAvailableMonths(d: Database.Database): string[] {
+  const rows = d
+    .prepare(
+      `SELECT DISTINCT substr(date, 1, 7) AS month FROM transactions ORDER BY month DESC`,
+    )
+    .all() as { month: string }[];
+  return rows.map((r) => r.month);
+}
+
+export function loadMonthlyStats(d: Database.Database, month: string): MonthlyStats {
+  const row = d
+    .prepare(
+      `SELECT
+         COUNT(*) AS total,
+         SUM(CASE WHEN reconciled = 1 THEN 1 ELSE 0 END) AS reconciled,
+         SUM(CASE WHEN reconciled = 0 AND mine_only = 0 THEN 1 ELSE 0 END) AS pending
+       FROM transactions
+       WHERE substr(date, 1, 7) = ?`,
+    )
+    .get(month) as MonthlyStats;
+  return row;
+}
+
+export function loadCategoryCountsForMonth(d: Database.Database, month: string): CategoryCount[] {
+  return d
+    .prepare(
+      `SELECT COALESCE(category, 'Uncategorized') AS category, COUNT(*) AS count
+       FROM transactions
+       WHERE substr(date, 1, 7) = ?
+       GROUP BY category`,
+    )
+    .all(month) as CategoryCount[];
+}
+
 export type MonthlySpendRow = {
   month: string;
   category: string;
