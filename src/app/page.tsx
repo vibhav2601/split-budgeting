@@ -1,7 +1,5 @@
 import ResetDbButton from "./reset-db-button";
-import MineOnlyButton from "./mine-only-button";
-import { ReconcileTxnLink, ReimbursementTxnLink } from "./components/txn-actions";
-import TransactionSourceLabel from "./components/transaction-source-label";
+import RecentTransactionsTable from "./recent-transactions-table";
 import { db } from "@/lib/db";
 import { loadMonthlyTrueSpendRows, type MonthlySpendRow } from "@/lib/expense-summary";
 import type { Transaction } from "@/lib/types";
@@ -74,14 +72,20 @@ export default function Dashboard() {
                   <h3 className="font-medium">{month}</h3>
                   <span className="font-mono">${total.toFixed(2)}</span>
                 </div>
-                <table className="w-full text-sm">
+                <table className="w-auto min-w-[20rem] text-sm">
+                  <thead className="text-left text-xs uppercase tracking-wide opacity-60">
+                    <tr>
+                      <th className="pb-1 pr-6 font-medium">Expense</th>
+                      <th className="pb-1 text-right font-medium">Amount</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {rows.map((r) => (
                       <tr
                         key={r.category}
                         className="border-t border-black/5 dark:border-white/5"
                       >
-                        <td className="py-1">
+                        <td className="py-1 pr-6">
                           <Link
                             href={{
                               pathname: "/dashboard/category",
@@ -92,7 +96,7 @@ export default function Dashboard() {
                             {r.category}
                           </Link>
                         </td>
-                        <td className="py-1 text-right font-mono">
+                        <td className="py-1 text-right font-mono tabular-nums whitespace-nowrap">
                           ${r.true_spend.toFixed(2)}
                         </td>
                       </tr>
@@ -107,62 +111,7 @@ export default function Dashboard() {
 
       <section>
         <h2 className="text-lg font-medium mb-3">Recent transactions</h2>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="text-left opacity-60">
-              <tr>
-                <th className="py-2 pr-4">Date</th>
-                <th className="pr-4">Source</th>
-                <th className="pr-4">Merchant</th>
-                <th className="pr-4 text-right">Total</th>
-                <th className="pr-4 text-right">My share</th>
-                <th className="pr-4">Status</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {transactions.map((t) => (
-                <tr
-                  key={t.id}
-                  className="border-t border-black/5 dark:border-white/5"
-                >
-                  <td className="py-1 pr-4 font-mono">{t.date}</td>
-                  <td className="pr-4">
-                    <TransactionSourceLabel transaction={t} />
-                  </td>
-                  <td className="pr-4">{t.merchant_raw}</td>
-                  <td className="pr-4 text-right font-mono">
-                    ${t.amount_total.toFixed(2)}
-                  </td>
-                  <td className="pr-4 text-right font-mono">
-                    ${t.amount_my_share.toFixed(2)}
-                  </td>
-                  <td className="pr-4">
-                    {t.reconciled ? "merged" : t.mine_only ? "mine only" : "pending"}
-                  </td>
-                  <td>
-                    {t.source !== "splitwise" && !t.reconciled ? (
-                      <div className="flex flex-row items-center gap-1">
-                        <ReconcileTxnLink transactionId={t.id} />
-                        {t.source === "credit_card" && (
-                          <ReimbursementTxnLink transactionId={t.id} />
-                        )}
-                        <MineOnlyButton
-                          transactionId={t.id}
-                          mineOnly={Boolean(t.mine_only)}
-                          compact
-                          iconOnly
-                        />
-                      </div>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <RecentTransactionsTable initialTransactions={transactions} />
       </section>
     </div>
   );

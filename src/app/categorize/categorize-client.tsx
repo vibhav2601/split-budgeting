@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import TransactionSourceLabel from "@/app/components/transaction-source-label";
 import { CATEGORY_OPTIONS } from "@/lib/categories";
-import type { UncategorizedTransactionRow } from "@/lib/types";
+import type { Source, UncategorizedTransactionRow } from "@/lib/types";
 
 type UncategorizedResponse = {
   rows?: UncategorizedTransactionRow[];
@@ -58,6 +58,7 @@ function SavingSpinnerIcon({ className }: { className?: string }) {
 export default function CategorizeClient() {
   const [rows, setRows] = useState<UncategorizedTransactionRow[]>([]);
   const [drafts, setDrafts] = useState<Record<number, string>>({});
+  const [sourceFilter, setSourceFilter] = useState<"all" | Source>("all");
   const [loading, setLoading] = useState(true);
   const [suggesting, setSuggesting] = useState(false);
   const [savingId, setSavingId] = useState<number | null>(null);
@@ -144,7 +145,7 @@ export default function CategorizeClient() {
   }
 
   async function acceptAllSuggestions() {
-    const items = rows
+    const items = filteredRows
       .filter((row) => row.suggestion)
       .map((row) => ({
         transaction_id: row.transaction.id,
@@ -180,7 +181,14 @@ export default function CategorizeClient() {
     }
   }
 
-  const suggestedCount = rows.filter((row) => row.suggestion).length;
+  const filteredRows = useMemo(
+    () =>
+      sourceFilter === "all"
+        ? rows
+        : rows.filter((row) => row.transaction.source === sourceFilter),
+    [rows, sourceFilter],
+  );
+  const suggestedCount = filteredRows.filter((row) => row.suggestion).length;
 
   return (
     <div className="space-y-6">
@@ -214,9 +222,32 @@ export default function CategorizeClient() {
       </header>
 
       <section className="grid grid-cols-3 gap-4">
-        <Stat label="Uncategorized" value={rows.length} />
+        <Stat label="Uncategorized" value={filteredRows.length} />
         <Stat label="With suggestion" value={suggestedCount} />
-        <Stat label="Manual review" value={rows.length - suggestedCount} />
+        <Stat label="Manual review" value={filteredRows.length - suggestedCount} />
+      </section>
+
+      <section className="flex flex-wrap items-center gap-2">
+        <SourceFilterButton
+          label="All sources"
+          active={sourceFilter === "all"}
+          onClick={() => setSourceFilter("all")}
+        />
+        <SourceFilterButton
+          label="Credit card"
+          active={sourceFilter === "credit_card"}
+          onClick={() => setSourceFilter("credit_card")}
+        />
+        <SourceFilterButton
+          label="Venmo"
+          active={sourceFilter === "venmo"}
+          onClick={() => setSourceFilter("venmo")}
+        />
+        <SourceFilterButton
+          label="Splitwise"
+          active={sourceFilter === "splitwise"}
+          onClick={() => setSourceFilter("splitwise")}
+        />
       </section>
 
       {(loading || suggesting) && (
@@ -227,7 +258,7 @@ export default function CategorizeClient() {
       {error && <p className="text-sm text-red-500">{error}</p>}
       {notice && <p className="text-sm text-amber-600 dark:text-amber-400">{notice}</p>}
 
-      {!loading && rows.length === 0 ? (
+      {!loading && filteredRows.length === 0 ? (
         <p className="text-sm opacity-60">No uncategorized transactions right now.</p>
       ) : (
         <div className="overflow-x-auto">
@@ -245,7 +276,7 @@ export default function CategorizeClient() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => {
+              {filteredRows.map((row) => {
                 const { transaction, suggestion } = row;
                 const draft =
                   drafts[transaction.id] ??
@@ -349,5 +380,29 @@ function Stat({ label, value }: { label: string; value: number }) {
       <div className="text-xs uppercase tracking-wide opacity-60">{label}</div>
       <div className="text-2xl font-mono mt-1">{value}</div>
     </div>
+  );
+}
+
+function SourceFilterButton({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-3 py-1.5 rounded border text-sm ${
+        active
+          ? "border-black/50 bg-black text-white dark:border-white/50 dark:bg-white dark:text-black"
+          : "border-black/15 hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/10"
+      }`}
+    >
+      {label}
+    </button>
   );
 }

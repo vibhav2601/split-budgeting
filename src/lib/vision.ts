@@ -127,18 +127,39 @@ const CategorizationResponseSchema = z.object({
 
 const CATEGORIZATION_SYSTEM = `You assign budgeting categories to transactions.
 
-Choose exactly one category from this fixed list:
+Choose exactly one category from this fixed list and never invent a new label:
 ${CATEGORY_OPTIONS.join(", ")}
 
-Rules:
+Category definitions:
+- "rent": rent payments, housing costs, renters or home insurance, electricity, water, gas, and home utility bills.
+- "dining out": sit-down restaurants, restaurants with table service, brunch, dinner, lunch out.
+- "coffee/beverages": coffee shops, cafes, tea, boba, juice, smoothies, standalone drinks, pastries from beverage shops.
+- "bar/club": bars, clubs, nightlife venues, alcohol-led venues, cover charges, bottle service, liquor stores, wine shops, breweries, and alcohol purchases.
+- "takeout food": delivery apps, pickup orders, fast casual takeaway, food trucks, counter-service meals primarily bought to-go.
+- "groceries": supermarkets, grocery stores, produce markets, Costco-style food shopping, and pantry staples bought for home.
+- "airlines": airline tickets, airline bag fees, seat fees, airline-operated charges.
+- "UBERs": Uber rides, Lyft rides, taxis, cabs, and ride-share trips.
+- "shopping": retail purchases, clothing, electronics, home goods, gifts, online shopping marketplaces.
+- "entertainment": movies, concerts, shows, museums, tickets, events, games, leisure activities.
+- "MISC": everything else, including transfers, Splitwise settlements, fees, and anything ambiguous.
+
+Decision rules:
 - Return exactly one category per transaction.
-- Prefer the most specific category available.
-- Use "bar/club" for nightlife, alcohol-forward venues, and clubs.
-- Use "coffee/beverages" for coffee shops, cafes, boba, juice, and standalone drinks.
-- Use "takeout food" for delivery apps, pickup, and quick takeaway meals.
-- Use "dining out" for sit-down restaurants and on-premise meals.
-- Use "airlines" for flight tickets, airline fees, and airline-operated services.
-- Use "MISC" only when none of the other categories fit clearly.
+- Prefer the most specific category available, otherwise use "MISC".
+- Use "rent" for insurance, electricity, water, gas, and home utility/housing-related charges even if they are not literal rent.
+- If a merchant is primarily known for coffee, tea, boba, juice, or drinks, use "coffee/beverages".
+- If a merchant is clearly a restaurant, decide between "dining out" and "takeout food" based on wording:
+  - use "takeout food" for delivery, pickup, takeout, eats, kitchen, order apps, and clearly to-go contexts
+  - use "dining out" for restaurants, cafes used as meal venues, and normal dine-in contexts
+- Use "groceries" for supermarkets and home food shopping, not for restaurants or coffee shops.
+- Use "UBERs" for ride-share trips and taxi transport, but not for Uber Eats or other food delivery.
+- Use "bar/club" for liquor-related purchases, alcohol merchants, bars, clubs, and nightlife. If a charge is clearly for liquor or alcohol, do not use "shopping" or "dining out".
+- If a venue is both food and nightlife, choose "bar/club" when alcohol/nightlife is the stronger signal.
+- Do not map anything to old categories such as transport, travel, fees, general, or bills. Those collapse to "MISC", except ride-share trips which should be "UBERs", groceries which should be "groceries", and housing/utilities/insurance which should be "rent".
+- "shopping" is only for retail or goods, not food/drinks/tickets.
+- "entertainment" is only for leisure or event spending, not nightlife drinking unless the venue is clearly a bar/club.
+- When uncertain, bias toward "MISC" instead of overfitting.
+- Keep the reason short and concrete.
 
 Respond with ONLY a JSON object of the form:
 {
@@ -182,6 +203,7 @@ export async function suggestTransactionCategories(
   );
   const res = await client().chat.completions.create({
     model: OPENAI_MODEL,
+    temperature: 0.1,
     max_tokens: 4096,
     response_format: { type: "json_object" },
     messages: [

@@ -4,9 +4,11 @@ export const CATEGORY_OPTIONS = [
   "coffee/beverages",
   "bar/club",
   "takeout food",
+  "groceries",
   "airlines",
-  "Shopping",
-  "Entertainment",
+  "UBERs",
+  "shopping",
+  "entertainment",
   "MISC",
 ] as const;
 

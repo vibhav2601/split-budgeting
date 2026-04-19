@@ -56,6 +56,19 @@ export default function SourceSectionTable({
   const [statusFilters, setStatusFilters] = useState<Set<StatusFilter>>(
     () => new Set(STATUS_OPTIONS.map((option) => option.key)),
   );
+  const [amountDrafts, setAmountDrafts] = useState<Record<number, { total: string; myShare: string }>>(
+    () => {
+      const next: Record<number, { total: string; myShare: string }> = {};
+      for (const row of initialRows) {
+        next[row.id] = {
+          total: row.amount_total.toFixed(2),
+          myShare: row.amount_my_share.toFixed(2),
+        };
+      }
+      return next;
+    },
+  );
+  const [savingAmountId, setSavingAmountId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [pendingDeleteRow, setPendingDeleteRow] = useState<Transaction | null>(null);
   const [skipDeleteConfirm, setSkipDeleteConfirm] = useState(false);
@@ -63,6 +76,16 @@ export default function SourceSectionTable({
 
   useEffect(() => {
     setRows(initialRows);
+    setAmountDrafts(() => {
+      const next: Record<number, { total: string; myShare: string }> = {};
+      for (const row of initialRows) {
+        next[row.id] = {
+          total: row.amount_total.toFixed(2),
+          myShare: row.amount_my_share.toFixed(2),
+        };
+      }
+      return next;
+    });
   }, [initialRows]);
 
   useEffect(() => {
@@ -110,7 +133,7 @@ export default function SourceSectionTable({
   }
 
   async function deleteRow(row: Transaction) {
-    if (deletingId !== null) return;
+    if (deletingId !== null || savingAmountId !== null) return;
 
     setDeletingId(row.id);
     setError(null);
@@ -133,12 +156,49 @@ export default function SourceSectionTable({
   }
 
   function requestDelete(row: Transaction) {
-    if (deletingId !== null) return;
+    if (deletingId !== null || savingAmountId !== null) return;
     if (skipDeleteConfirm) {
       void deleteRow(row);
       return;
     }
     setPendingDeleteRow(row);
+  }
+
+  async function saveAmounts(row: Transaction, total: string, myShare: string) {
+    if (savingAmountId !== null || deletingId !== null) return;
+    setSavingAmountId(row.id);
+    setError(null);
+    try {
+      const res = await fetch("/api/transactions/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transaction_id: row.id,
+          amount_total: Number(total),
+          amount_my_share: Number(myShare),
+        }),
+      });
+      const body = (await res.json()) as { error?: string; transaction?: Transaction };
+      if (!res.ok || !body.transaction) {
+        throw new Error(body.error ?? "failed");
+      }
+      const updated = body.transaction;
+      setRows((prev) =>
+        prev.map((txn) => (txn.id === row.id ? updated : txn)),
+      );
+      setAmountDrafts((prev) => ({
+        ...prev,
+        [row.id]: {
+          total: updated.amount_total.toFixed(2),
+          myShare: updated.amount_my_share.toFixed(2),
+        },
+      }));
+      router.refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSavingAmountId(null);
+    }
   }
 
   return (
@@ -222,83 +282,149 @@ export default function SourceSectionTable({
             </tr>
           </thead>
           <tbody>
-            {sortedRows.map((row) => (
-              <tr
-                key={row.id}
-                className="border-t border-black/5 dark:border-white/5"
-              >
-                <td className="py-2 pr-4 font-mono whitespace-nowrap">{row.date}</td>
-                <td className="pr-4 min-w-40">{row.merchant_raw}</td>
-                <td className="pr-4 min-w-48">{renderValue(row.description)}</td>
-                <td className="pr-4 whitespace-nowrap">{renderValue(row.category)}</td>
-                <td className="pr-4 whitespace-nowrap">{row.payer}</td>
-                <td className="pr-4 whitespace-nowrap">
-                  {row.reconciled ? "merged" : row.mine_only ? "mine only" : "pending"}
-                </td>
-                <td className="pr-4 min-w-36">
-                  <div className="flex flex-row flex-wrap items-center gap-1">
-                    {row.source !== "splitwise" && !row.reconciled ? (
-                      <>
-                        <ReconcileTxnLink transactionId={row.id} />
-                        <MineOnlyButton
-                          transactionId={row.id}
-                          mineOnly={Boolean(row.mine_only)}
-                          compact
-                          iconOnly
-                          autoRefresh={false}
-                          onChanged={(nextMineOnly) => {
-                            setRows((prev) =>
-                              prev.map((txn) =>
-                                txn.id === row.id ? { ...txn, mine_only: nextMineOnly ? 1 : 0 } : txn,
-                              ),
-                            );
-                            startTransition(() => {
-                              router.refresh();
-                            });
-                          }}
-                        />
-                      </>
+            {sortedRows.map((row) => {
+              const amountDraft = amountDrafts[row.id] ?? {
+                total: row.amount_total.toFixed(2),
+                myShare: row.amount_my_share.toFixed(2),
+              };
+              const parsedTotal = Number(amountDraft.total);
+              const parsedMyShare = Number(amountDraft.myShare);
+              const amountsValid =
+                amountDraft.total.trim() !== "" &&
+                amountDraft.myShare.trim() !== "" &&
+                Number.isFinite(parsedTotal) &&
+                Number.isFinite(parsedMyShare) &&
+                parsedTotal >= 0 &&
+                parsedMyShare >= 0 &&
+                parsedMyShare <= parsedTotal + 0.01;
+              const amountsChanged =
+                amountDraft.total !== row.amount_total.toFixed(2) ||
+                amountDraft.myShare !== row.amount_my_share.toFixed(2);
+              const amountLocked = Boolean(row.reconciled);
+              const amountBusy = savingAmountId === row.id;
+
+              return (
+                <tr
+                  key={row.id}
+                  className="border-t border-black/5 dark:border-white/5"
+                >
+                  <td className="py-2 pr-4 font-mono whitespace-nowrap">{row.date}</td>
+                  <td className="pr-4 min-w-40">{row.merchant_raw}</td>
+                  <td className="pr-4 min-w-48">{renderValue(row.description)}</td>
+                  <td className="pr-4 whitespace-nowrap">{renderValue(row.category)}</td>
+                  <td className="pr-4 whitespace-nowrap">{row.payer}</td>
+                  <td className="pr-4 whitespace-nowrap">
+                    {row.reconciled ? "merged" : row.mine_only ? "mine only" : "pending"}
+                  </td>
+                  <td className="pr-4 min-w-44">
+                    <div className="flex flex-row flex-wrap items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => void saveAmounts(row, amountDraft.total, amountDraft.myShare)}
+                        disabled={Boolean(
+                          amountBusy || amountLocked || !amountsValid || !amountsChanged || deletingId !== null,
+                        )}
+                        className="px-3 py-1.5 rounded bg-black text-white dark:bg-white dark:text-black text-sm disabled:opacity-50"
+                      >
+                        {amountBusy ? "Saving…" : "Save amounts"}
+                      </button>
+                      {row.source !== "splitwise" && !row.reconciled ? (
+                        <>
+                          <ReconcileTxnLink transactionId={row.id} />
+                          <MineOnlyButton
+                            transactionId={row.id}
+                            mineOnly={Boolean(row.mine_only)}
+                            compact
+                            iconOnly
+                            autoRefresh={false}
+                            onChanged={(nextMineOnly) => {
+                              setRows((prev) =>
+                                prev.map((txn) =>
+                                  txn.id === row.id ? { ...txn, mine_only: nextMineOnly ? 1 : 0 } : txn,
+                                ),
+                              );
+                              startTransition(() => {
+                                router.refresh();
+                              });
+                            }}
+                          />
+                        </>
+                      ) : (
+                        <span className="text-xs opacity-50">
+                          {row.reconciled ? "Merged rows lock raw amounts." : "—"}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => requestDelete(row)}
+                        disabled={Boolean(deletingId === row.id || savingAmountId !== null)}
+                        title={deletingId === row.id ? "Deleting…" : "Delete transaction"}
+                        aria-label={deletingId === row.id ? "Deleting…" : "Delete transaction"}
+                        className={`${txnActionIconButtonClass} text-red-600 hover:bg-red-500/10 disabled:opacity-50 dark:text-red-400`}
+                      >
+                        <TrashIcon className="size-[1.125rem] shrink-0" />
+                      </button>
+                    </div>
+                  </td>
+                  <td className="pr-4 whitespace-nowrap">{row.currency}</td>
+                  <td className="pr-4 text-right whitespace-nowrap">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={amountDraft.total}
+                      disabled={Boolean(amountBusy || amountLocked)}
+                      onChange={(e) =>
+                        setAmountDrafts((prev) => ({
+                          ...prev,
+                          [row.id]: {
+                            ...amountDraft,
+                            total: e.target.value,
+                          },
+                        }))
+                      }
+                      className="w-28 rounded border border-black/15 dark:border-white/15 bg-transparent px-2 py-1 text-right font-mono text-sm disabled:opacity-50"
+                    />
+                  </td>
+                  <td className="pr-4 text-right whitespace-nowrap">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={amountDraft.myShare}
+                      disabled={Boolean(amountBusy || amountLocked)}
+                      onChange={(e) =>
+                        setAmountDrafts((prev) => ({
+                          ...prev,
+                          [row.id]: {
+                            ...amountDraft,
+                            myShare: e.target.value,
+                          },
+                        }))
+                      }
+                      className="w-28 rounded border border-black/15 dark:border-white/15 bg-transparent px-2 py-1 text-right font-mono text-sm disabled:opacity-50"
+                    />
+                  </td>
+                  <td className="pr-4 font-mono text-xs min-w-36">
+                    {renderValue(row.external_id)}
+                  </td>
+                  <td className="min-w-56">
+                    {row.raw_json ? (
+                      <details>
+                        <summary className="cursor-pointer text-xs underline underline-offset-2">
+                          View raw JSON
+                        </summary>
+                        <pre className="mt-2 text-xs p-3 rounded bg-black/5 dark:bg-white/5 overflow-x-auto">
+                          {prettyJson(row.raw_json)}
+                        </pre>
+                      </details>
                     ) : (
                       <span className="text-xs opacity-50">—</span>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => requestDelete(row)}
-                      disabled={deletingId === row.id}
-                      title={deletingId === row.id ? "Deleting…" : "Delete transaction"}
-                      aria-label={deletingId === row.id ? "Deleting…" : "Delete transaction"}
-                      className={`${txnActionIconButtonClass} text-red-600 hover:bg-red-500/10 disabled:opacity-50 dark:text-red-400`}
-                    >
-                      <TrashIcon className="size-[1.125rem] shrink-0" />
-                    </button>
-                  </div>
-                </td>
-                <td className="pr-4 whitespace-nowrap">{row.currency}</td>
-                <td className="pr-4 text-right font-mono whitespace-nowrap">
-                  ${row.amount_total.toFixed(2)}
-                </td>
-                <td className="pr-4 text-right font-mono whitespace-nowrap">
-                  ${row.amount_my_share.toFixed(2)}
-                </td>
-                <td className="pr-4 font-mono text-xs min-w-36">
-                  {renderValue(row.external_id)}
-                </td>
-                <td className="min-w-56">
-                  {row.raw_json ? (
-                    <details>
-                      <summary className="cursor-pointer text-xs underline underline-offset-2">
-                        View raw JSON
-                      </summary>
-                      <pre className="mt-2 text-xs p-3 rounded bg-black/5 dark:bg-white/5 overflow-x-auto">
-                        {prettyJson(row.raw_json)}
-                      </pre>
-                    </details>
-                  ) : (
-                    <span className="text-xs opacity-50">—</span>
-                  )}
-                </td>
-              </tr>
-            ))}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
