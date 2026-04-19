@@ -30,7 +30,8 @@ Open http://localhost:3000.
 
 ## Matching algorithm
 
-For each unreconciled Splitwise expense we search credit card + Venmo
+For each unreconciled Splitwise expense that you paid or shared, excluding
+settlement rows like "Settle all balances", we search credit card + Venmo
 transactions within ±3 days and score candidates on:
 
 - **Amount**: Splitwise group total ≈ CC amount (within 15% tolerance).

@@ -34,6 +34,7 @@ export default function RootLayout({
           <Link href="/" className="text-sm hover:underline">Dashboard</Link>
           <Link href="/import" className="text-sm hover:underline">Import</Link>
           <Link href="/reconcile" className="text-sm hover:underline">Reconcile</Link>
+          <Link href="/db" className="text-sm hover:underline">Database</Link>
         </nav>
         <main className="flex-1 p-6 max-w-5xl w-full mx-auto">{children}</main>
       </body>

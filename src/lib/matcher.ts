@@ -35,6 +35,22 @@ function payerScore(sw: Transaction, other: Transaction): number {
   return 0.3;
 }
 
+function normalizeReconcileText(value: string | null | undefined): string {
+  return (value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function shouldExcludeSplitwiseFromReconcile(txn: Transaction): boolean {
+  if (txn.source !== "splitwise") return false;
+  if (txn.payer === "other") return true;
+
+  const merchant = normalizeReconcileText(txn.merchant_raw);
+  const description = normalizeReconcileText(txn.description);
+  return merchant.includes("settle all balances") || description.includes("settle all balances");
+}
+
 function unreconciled(source?: Transaction["source"]): Transaction[] {
   const sql = source
     ? `SELECT * FROM transactions WHERE reconciled = 0 AND source = ? ORDER BY date DESC`
@@ -43,9 +59,26 @@ function unreconciled(source?: Transaction["source"]): Transaction[] {
   return (source ? stmt.all(source) : stmt.all()) as Transaction[];
 }
 
-export async function suggestMerges(): Promise<MergeSuggestion[]> {
-  const swTxns = unreconciled("splitwise");
-  const others = [...unreconciled("credit_card"), ...unreconciled("venmo")];
+function getTransaction(id: number): Transaction | null {
+  return (
+    (db().prepare("SELECT * FROM transactions WHERE id = ?").get(id) as Transaction | undefined) ??
+    null
+  );
+}
+
+export async function suggestMerges(params: {
+  other_txn_id?: number;
+} = {}): Promise<{ suggestions: MergeSuggestion[]; focus_txn: Transaction | null }> {
+  const swTxns = unreconciled("splitwise").filter((txn) => !shouldExcludeSplitwiseFromReconcile(txn));
+  let others = [...unreconciled("credit_card"), ...unreconciled("venmo")];
+  const focusTxn =
+    typeof params.other_txn_id === "number" ? getTransaction(params.other_txn_id) : null;
+  if (focusTxn) {
+    if (focusTxn.source === "splitwise") {
+      throw new Error("focused transaction must be credit card or venmo");
+    }
+    others = others.filter((txn) => txn.id === focusTxn.id);
+  }
 
   const pending: {
     sw: Transaction;
@@ -116,9 +149,10 @@ export async function suggestMerges(): Promise<MergeSuggestion[]> {
     g.candidates.sort((a, b) => b.score - a.score);
     g.candidates = g.candidates.slice(0, 5);
   }
-  return Array.from(grouped.values()).sort(
+  const suggestions = Array.from(grouped.values()).sort(
     (a, b) => (b.candidates[0]?.score ?? 0) - (a.candidates[0]?.score ?? 0),
   );
+  return { suggestions, focus_txn: focusTxn };
 }
 
 export function confirmMerge(params: {

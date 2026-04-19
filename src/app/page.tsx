@@ -1,3 +1,4 @@
+import UnmergedTransactionsSection from "./unmerged-transactions-section";
 import { db } from "@/lib/db";
 import type { Transaction } from "@/lib/types";
 
@@ -5,10 +6,30 @@ export const dynamic = "force-dynamic";
 
 type MonthlyRow = { month: string; category: string; true_spend: number };
 
+function isLikelyNonSpend(txn: Transaction): boolean {
+  const text = `${txn.merchant_raw} ${txn.description ?? ""}`.toLowerCase();
+  return [
+    "payment thank you",
+    "online ach payment",
+    "last statement bal",
+    "statement balance",
+    "balance transfer",
+    "automatic payment",
+    "autopay",
+  ].some((needle) => text.includes(needle));
+}
+
 function loadData() {
   const d = db();
   const transactions = d
     .prepare(`SELECT * FROM transactions ORDER BY date DESC, id DESC LIMIT 100`)
+    .all() as Transaction[];
+  const unmerged = d
+    .prepare(
+      `SELECT * FROM transactions
+       WHERE reconciled = 0 AND source IN ('credit_card', 'venmo')
+       ORDER BY date DESC, id DESC`,
+    )
     .all() as Transaction[];
   const monthly = d
     .prepare(
@@ -38,11 +59,15 @@ function loadData() {
        FROM transactions`,
     )
     .get() as { total_txns: number; reconciled: number; pending: number };
-  return { transactions, monthly, totals };
+  const actionableUnmerged = unmerged.filter((txn) => {
+    if (txn.source === "venmo" && txn.payer !== "me") return false;
+    return !isLikelyNonSpend(txn);
+  });
+  return { transactions, monthly, totals, actionableUnmerged };
 }
 
 export default function Dashboard() {
-  const { transactions, monthly, totals } = loadData();
+  const { transactions, monthly, totals, actionableUnmerged } = loadData();
   const byMonth = new Map<string, MonthlyRow[]>();
   for (const row of monthly) {
     if (!byMonth.has(row.month)) byMonth.set(row.month, []);
@@ -65,6 +90,8 @@ export default function Dashboard() {
         <Stat label="Reconciled" value={totals.reconciled ?? 0} />
         <Stat label="Pending review" value={totals.pending ?? 0} />
       </section>
+
+      <UnmergedTransactionsSection transactions={actionableUnmerged} />
 
       <section>
         <h2 className="text-lg font-medium mb-3">Monthly true spend by category</h2>

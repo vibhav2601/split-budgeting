@@ -1,35 +1,59 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import type { MergeSuggestion, Transaction } from "@/lib/types";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import type { MergeSuggestion, ReconcileSuggestResponse, Transaction } from "@/lib/types";
 
 export default function ReconcilePage() {
+  return (
+    <Suspense fallback={<ReconcilePageFallback />}>
+      <ReconcilePageContent />
+    </Suspense>
+  );
+}
+
+function ReconcilePageFallback() {
+  return <p className="text-sm opacity-60">Loading reconcile queue…</p>;
+}
+
+function ReconcilePageContent() {
+  const searchParams = useSearchParams();
+  const focusTxnId = searchParams.get("txn_id");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<MergeSuggestion[]>([]);
   const [selections, setSelections] = useState<Record<number, Set<number>>>({});
+  const [focusTxn, setFocusTxn] = useState<Transaction | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/reconcile/suggest");
-      const body = await res.json();
+      const qs = focusTxnId ? `?txn_id=${encodeURIComponent(focusTxnId)}` : "";
+      const res = await fetch(`/api/reconcile/suggest${qs}`);
+      const body = (await res.json()) as ReconcileSuggestResponse & { error?: string };
       if (!res.ok) throw new Error(body.error ?? "failed");
       setSuggestions(body.suggestions as MergeSuggestion[]);
+      setFocusTxn(body.focus_txn ?? null);
       const init: Record<number, Set<number>> = {};
       for (const s of body.suggestions as MergeSuggestion[]) {
+        const focusedCandidate = body.focus_txn
+          ? s.candidates.find((c) => c.txn.id === body.focus_txn?.id)
+          : null;
         const top = s.candidates[0];
-        if (top && top.score >= 0.7) init[s.splitwise_txn.id] = new Set([top.txn.id]);
+        if (focusedCandidate) init[s.splitwise_txn.id] = new Set([focusedCandidate.txn.id]);
+        else if (top && top.score >= 0.7) init[s.splitwise_txn.id] = new Set([top.txn.id]);
         else init[s.splitwise_txn.id] = new Set();
       }
       setSelections(init);
     } catch (e) {
       setError((e as Error).message);
+      setFocusTxn(null);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [focusTxnId]);
 
   useEffect(() => {
     load();
@@ -44,6 +68,16 @@ export default function ReconcilePage() {
     });
   }
 
+  function dismiss(swId: number) {
+    setSuggestions((prev) => prev.filter((s) => s.splitwise_txn.id !== swId));
+    setSelections((prev) => {
+      if (!(swId in prev)) return prev;
+      const next = { ...prev };
+      delete next[swId];
+      return next;
+    });
+  }
+
   async function confirm(swId: number) {
     const ids = Array.from(selections[swId] ?? []);
     const res = await fetch("/api/reconcile/confirm", {
@@ -52,7 +86,7 @@ export default function ReconcilePage() {
       body: JSON.stringify({ splitwise_txn_id: swId, other_txn_ids: ids }),
     });
     if (res.ok) {
-      setSuggestions((prev) => prev.filter((s) => s.splitwise_txn.id !== swId));
+      dismiss(swId);
     } else {
       setError(await res.text());
     }
@@ -78,9 +112,34 @@ export default function ReconcilePage() {
         </button>
       </header>
 
+      {focusTxn && (
+        <section className="border border-black/10 dark:border-white/10 rounded p-4 flex items-start justify-between gap-4">
+          <div>
+            <div className="text-xs uppercase opacity-60">Focused transaction</div>
+            <div className="font-medium">{focusTxn.merchant_raw}</div>
+            <div className="text-sm opacity-70 font-mono">
+              {focusTxn.date} · {focusTxn.source} · total ${focusTxn.amount_total.toFixed(2)} ·
+              my share ${focusTxn.amount_my_share.toFixed(2)}
+            </div>
+          </div>
+          <Link href="/reconcile" className="text-sm underline whitespace-nowrap">
+            Back to full queue
+          </Link>
+        </section>
+      )}
+
       {loading && <p className="text-sm opacity-60">Scoring matches…</p>}
       {error && <p className="text-sm text-red-500">{error}</p>}
-      {!loading && !error && suggestions.length === 0 && (
+      {!loading && !error && focusTxn && suggestions.length === 0 && (
+        <p className="text-sm opacity-60">
+          No Splitwise candidates were found for this transaction. Try the{" "}
+          <Link href="/reconcile" className="underline">
+            full queue
+          </Link>
+          .
+        </p>
+      )}
+      {!loading && !error && !focusTxn && suggestions.length === 0 && (
         <p className="text-sm opacity-60">
           Nothing to reconcile. Import more data or all Splitwise entries are
           already matched.
@@ -109,6 +168,12 @@ export default function ReconcilePage() {
               >
                 Confirm merge
               </button>
+              <button
+                onClick={() => dismiss(s.splitwise_txn.id)}
+                className="px-3 py-1.5 text-sm border border-black/20 dark:border-white/20 rounded hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                Deny merge
+              </button>
             </div>
 
             <div className="space-y-1">
@@ -122,6 +187,7 @@ export default function ReconcilePage() {
                   txn={c.txn}
                   score={c.score}
                   reasons={c.reasons}
+                  focused={focusTxn?.id === c.txn.id}
                   selected={(selections[s.splitwise_txn.id] ?? new Set()).has(c.txn.id)}
                   onToggle={() => toggle(s.splitwise_txn.id, c.txn.id)}
                 />
@@ -138,12 +204,14 @@ function CandidateRow({
   txn,
   score,
   reasons,
+  focused,
   selected,
   onToggle,
 }: {
   txn: Transaction;
   score: number;
   reasons: string[];
+  focused: boolean;
   selected: boolean;
   onToggle: () => void;
 }) {
@@ -152,6 +220,8 @@ function CandidateRow({
       className={`flex items-start gap-3 p-2 rounded cursor-pointer border ${
         selected
           ? "border-black/40 dark:border-white/40 bg-black/5 dark:bg-white/5"
+          : focused
+            ? "border-black/20 dark:border-white/20 bg-black/5 dark:bg-white/5"
           : "border-transparent hover:bg-black/5 dark:hover:bg-white/5"
       }`}
     >
@@ -163,7 +233,14 @@ function CandidateRow({
       />
       <div className="flex-1">
         <div className="flex justify-between">
-          <div className="font-medium">{txn.merchant_raw}</div>
+          <div className="font-medium">
+            {txn.merchant_raw}
+            {focused && (
+              <span className="ml-2 text-[10px] uppercase tracking-wide opacity-60">
+                selected from dashboard
+              </span>
+            )}
+          </div>
           <div className="font-mono text-sm">${txn.amount_total.toFixed(2)}</div>
         </div>
         <div className="text-xs opacity-70 font-mono">

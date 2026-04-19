@@ -36,3 +36,8 @@ export interface MergeSuggestion {
     reasons: string[];
   }>;
 }
+
+export interface ReconcileSuggestResponse {
+  suggestions: MergeSuggestion[];
+  focus_txn: Transaction | null;
+}
