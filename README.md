@@ -40,3 +40,8 @@
 
 - Run `npm run dev`
 - Open `http://localhost:3000`
+
+## Demo Videos
+
+- Product walkthrough: https://www.loom.com/share/be9c332cf9c145c881fdfc254f8cab9a
+- Export and workflow demo: https://www.loom.com/share/07860847fb864ef5afd52a35b938831c
