@@ -1,12 +1,46 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import TransactionSourceLabel from "@/app/components/transaction-source-label";
 import MineOnlyButton from "@/app/mine-only-button";
 import MergeConfirmButton from "@/app/reconcile/merge-confirm-button";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import type { MergeSuggestion, ReconcileSuggestResponse, Transaction } from "@/lib/types";
+
+function ReconcileNav() {
+  const pathname = usePathname();
+  return (
+    <nav className="flex gap-1 border-b border-border pb-3 mb-2">
+      <Link
+        href="/reconcile"
+        className={cn(
+          "px-3 py-1.5 text-sm rounded-md transition-colors",
+          pathname === "/reconcile"
+            ? "bg-muted font-medium"
+            : "text-muted-foreground hover:text-foreground hover:bg-muted/70",
+        )}
+      >
+        Queue
+      </Link>
+      <Link
+        href="/reconcile/search"
+        className={cn(
+          "px-3 py-1.5 text-sm rounded-md transition-colors",
+          pathname.startsWith("/reconcile/search")
+            ? "bg-muted font-medium"
+            : "text-muted-foreground hover:text-foreground hover:bg-muted/70",
+        )}
+      >
+        Search
+      </Link>
+    </nav>
+  );
+}
 
 export default function ReconcilePage() {
   return (
@@ -17,7 +51,15 @@ export default function ReconcilePage() {
 }
 
 function ReconcilePageFallback() {
-  return <p className="text-sm opacity-60">Loading Splitwise reconcile queue…</p>;
+  return (
+    <div className="space-y-6">
+      <header>
+        <h1 className="text-2xl font-semibold tracking-tight">Splitwise Reconcile</h1>
+      </header>
+      <ReconcileNav />
+      <p className="text-sm text-muted-foreground">Loading Splitwise reconcile queue…</p>
+    </div>
+  );
 }
 
 function ReconcilePageContent() {
@@ -83,42 +125,41 @@ function ReconcilePageContent() {
     <div className="space-y-6">
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Splitwise Reconcile</h1>
-          <p className="text-sm opacity-70 mt-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Splitwise Reconcile</h1>
+          <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
             Each Splitwise entry shows the credit card / Venmo transactions it
-            might belong to. Pick the true matches and confirm. Confirming sets
-            your true share to the Splitwise amount and flags the others as
-            reconciled.
+            might belong to. Pick the true matches and confirm.
           </p>
         </div>
-        <button
-          onClick={load}
-          className="px-3 py-1.5 text-sm border border-black/20 dark:border-white/20 rounded hover:bg-black/5 dark:hover:bg-white/10"
-        >
+        <Button variant="outline" onClick={load}>
           Refresh
-        </button>
+        </Button>
       </header>
 
+      <ReconcileNav />
+
       {focusTxn && (
-        <section className="border border-black/10 dark:border-white/10 rounded p-4 flex items-start justify-between gap-4">
-          <div>
-            <div className="text-xs uppercase opacity-60">Focused transaction</div>
-            <div className="font-medium">{focusTxn.merchant_raw}</div>
-            <div className="text-sm opacity-70 font-mono">
-              {focusTxn.date} · <TransactionSourceLabel transaction={focusTxn} /> · total ${focusTxn.amount_total.toFixed(2)} ·
-              my share ${focusTxn.amount_my_share.toFixed(2)}
+        <Card>
+          <CardContent className="flex items-start justify-between gap-4">
+            <div>
+              <div className="text-xs uppercase text-muted-foreground tracking-wide">Focused transaction</div>
+              <div className="font-medium mt-1">{focusTxn.merchant_raw}</div>
+              <div className="text-sm text-muted-foreground font-mono tabular-nums">
+                {focusTxn.date} · <TransactionSourceLabel transaction={focusTxn} /> · total ${focusTxn.amount_total.toFixed(2)} ·
+                my share ${focusTxn.amount_my_share.toFixed(2)}
+              </div>
             </div>
-          </div>
-          <Link href="/reconcile" className="text-sm underline whitespace-nowrap">
-            Back to full queue
-          </Link>
-        </section>
+            <Link href="/reconcile" className="text-sm underline whitespace-nowrap">
+              Back to full queue
+            </Link>
+          </CardContent>
+        </Card>
       )}
 
-      {loading && <p className="text-sm opacity-60">Scoring matches…</p>}
-      {error && <p className="text-sm text-red-500">{error}</p>}
+      {loading && <p className="text-sm text-muted-foreground">Scoring matches…</p>}
+      {error && <p className="text-sm text-destructive">{error}</p>}
       {!loading && !error && focusTxn && suggestions.length === 0 && (
-        <p className="text-sm opacity-60">
+        <p className="text-sm text-muted-foreground">
           No Splitwise candidates were found for this transaction. Try the{" "}
           <Link href="/reconcile" className="underline">
             full queue
@@ -127,83 +168,81 @@ function ReconcilePageContent() {
         </p>
       )}
       {!loading && !error && !focusTxn && suggestions.length === 0 && (
-        <p className="text-sm opacity-60">
-          Nothing to reconcile. Import more data or all Splitwise entries are
-          already matched.
+        <p className="text-sm text-muted-foreground">
+          Nothing to reconcile. Import more data or all Splitwise entries are already matched.
         </p>
       )}
 
       <div className="space-y-4">
         {suggestions.map((s) => (
-          <div
-            key={s.splitwise_txn.id}
-            className="border border-black/10 dark:border-white/10 rounded p-4 space-y-3"
-          >
-            <div className="flex justify-between items-start gap-4">
-              <div>
-                <div className="text-xs uppercase opacity-60">Splitwise</div>
-                <div className="font-medium">{s.splitwise_txn.merchant_raw}</div>
-                <div className="text-sm opacity-70 font-mono">
-                  {s.splitwise_txn.date} · total ${s.splitwise_txn.amount_total.toFixed(2)} ·
-                  my share ${s.splitwise_txn.amount_my_share.toFixed(2)} ·
-                  paid by {s.splitwise_txn.payer}
+          <Card key={s.splitwise_txn.id}>
+            <CardContent className="space-y-4">
+              <div className="flex justify-between items-start gap-4 flex-wrap">
+                <div>
+                  <div className="text-xs uppercase text-muted-foreground tracking-wide">Splitwise</div>
+                  <div className="font-medium mt-1">{s.splitwise_txn.merchant_raw}</div>
+                  <div className="text-sm text-muted-foreground font-mono tabular-nums">
+                    {s.splitwise_txn.date} · total ${s.splitwise_txn.amount_total.toFixed(2)} ·
+                    my share ${s.splitwise_txn.amount_my_share.toFixed(2)} ·
+                    paid by {s.splitwise_txn.payer}
+                  </div>
+                </div>
+                <div className="flex items-start gap-2 flex-wrap">
+                  {s.candidates.find((candidate) => candidate.txn.id === selections[s.splitwise_txn.id]) ? (
+                    <MergeConfirmButton
+                      splitwiseTxn={s.splitwise_txn}
+                      matchedTxn={s.candidates.find(
+                        (candidate) => candidate.txn.id === selections[s.splitwise_txn.id],
+                      )!.txn}
+                      label="Confirm merge"
+                      className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-sm font-medium text-primary-foreground transition-all hover:bg-primary/80"
+                      onMerged={() => dismiss(s.splitwise_txn.id)}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setError("Select one candidate before confirming the merge.")}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-sm font-medium text-primary-foreground transition-all hover:bg-primary/80"
+                    >
+                      Confirm merge
+                    </button>
+                  )}
+                  <Link
+                    href={`/reconcile/search?splitwise_txn_id=${s.splitwise_txn.id}`}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 text-sm font-medium transition-colors hover:bg-muted"
+                  >
+                    Search credit cards
+                  </Link>
+                  <button
+                    onClick={() => dismiss(s.splitwise_txn.id)}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 text-sm font-medium transition-colors hover:bg-muted"
+                  >
+                    Deny merge
+                  </button>
                 </div>
               </div>
-              <div className="flex items-start gap-2">
-                {s.candidates.find((candidate) => candidate.txn.id === selections[s.splitwise_txn.id]) ? (
-                  <MergeConfirmButton
-                    splitwiseTxn={s.splitwise_txn}
-                    matchedTxn={s.candidates.find(
-                      (candidate) => candidate.txn.id === selections[s.splitwise_txn.id],
-                    )!.txn}
-                    label="Confirm merge"
-                    className="px-3 py-1.5 text-sm bg-black text-white dark:bg-white dark:text-black rounded hover:opacity-80"
-                    onMerged={() => dismiss(s.splitwise_txn.id)}
-                  />
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setError("Select one candidate before confirming the merge.")}
-                    className="px-3 py-1.5 text-sm bg-black text-white dark:bg-white dark:text-black rounded hover:opacity-80"
-                  >
-                    Confirm merge
-                  </button>
-                )}
-              </div>
-              <Link
-                href={`/reconcile/search?splitwise_txn_id=${s.splitwise_txn.id}`}
-                className="px-3 py-1.5 text-sm border border-black/20 dark:border-white/20 rounded hover:bg-black/5 dark:hover:bg-white/10"
-              >
-                Search credit cards to merge
-              </Link>
-              <button
-                onClick={() => dismiss(s.splitwise_txn.id)}
-                className="px-3 py-1.5 text-sm border border-black/20 dark:border-white/20 rounded hover:bg-black/5 dark:hover:bg-white/10"
-              >
-                Deny merge
-              </button>
-            </div>
 
-            <div className="space-y-1">
-              <div className="text-xs uppercase opacity-60">Candidates</div>
-              {s.candidates.length === 0 && (
-                <p className="text-sm opacity-60">No matches above threshold.</p>
-              )}
-              {s.candidates.map((c) => (
-                <CandidateRow
-                  key={c.txn.id}
-                  splitwiseTxnId={s.splitwise_txn.id}
-                  txn={c.txn}
-                  score={c.score}
-                  reasons={c.reasons}
-                  focused={focusTxn?.id === c.txn.id}
-                  selected={selections[s.splitwise_txn.id] === c.txn.id}
-                  onToggle={() => selectCandidate(s.splitwise_txn.id, c.txn.id)}
-                  onMineOnly={load}
-                />
-              ))}
-            </div>
-          </div>
+              <div className="space-y-1">
+                <div className="text-xs uppercase text-muted-foreground tracking-wide">Candidates</div>
+                {s.candidates.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No matches above threshold.</p>
+                )}
+                {s.candidates.map((c) => (
+                  <CandidateRow
+                    key={c.txn.id}
+                    splitwiseTxnId={s.splitwise_txn.id}
+                    txn={c.txn}
+                    score={c.score}
+                    reasons={c.reasons}
+                    focused={focusTxn?.id === c.txn.id}
+                    selected={selections[s.splitwise_txn.id] === c.txn.id}
+                    onToggle={() => selectCandidate(s.splitwise_txn.id, c.txn.id)}
+                    onMineOnly={load}
+                  />
+                ))}
+              </div>
+            </CardContent>
+          </Card>
         ))}
       </div>
     </div>
@@ -231,13 +270,14 @@ function CandidateRow({
 }) {
   return (
     <div
-      className={`flex items-start gap-3 p-2 rounded cursor-pointer border ${
+      className={cn(
+        "flex items-start gap-3 p-2.5 rounded-md cursor-pointer border transition-colors",
         selected
-          ? "border-black/40 dark:border-white/40 bg-black/5 dark:bg-white/5"
+          ? "border-primary/40 bg-muted"
           : focused
-            ? "border-black/20 dark:border-white/20 bg-black/5 dark:bg-white/5"
-          : "border-transparent hover:bg-black/5 dark:hover:bg-white/5"
-      }`}
+            ? "border-border bg-muted/50"
+            : "border-transparent hover:bg-muted/50",
+      )}
     >
       <input
         type="radio"
@@ -247,21 +287,28 @@ function CandidateRow({
         className="mt-1"
       />
       <div className="flex-1">
-        <div className="flex justify-between">
-          <div className="font-medium">
+        <div className="flex justify-between items-start gap-2">
+          <div className="font-medium text-sm">
             {txn.merchant_raw}
             {focused && (
-              <span className="ml-2 text-[10px] uppercase tracking-wide opacity-60">
+              <span className="ml-2 text-[10px] uppercase tracking-wide text-muted-foreground">
                 selected from dashboard
               </span>
             )}
           </div>
-          <div className="font-mono text-sm">${txn.amount_total.toFixed(2)}</div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Badge variant="outline" className="font-mono tabular-nums">
+              {(score * 100).toFixed(0)}%
+            </Badge>
+            <div className="font-mono tabular-nums text-sm">${txn.amount_total.toFixed(2)}</div>
+          </div>
         </div>
-        <div className="text-xs opacity-70 font-mono">
-          {txn.date} · <TransactionSourceLabel transaction={txn} /> · score {(score * 100).toFixed(0)}%
+        <div className="text-xs text-muted-foreground font-mono tabular-nums mt-0.5">
+          {txn.date} · <TransactionSourceLabel transaction={txn} />
         </div>
-        <div className="text-xs opacity-60">{reasons.join(" · ")}</div>
+        {reasons.length > 0 && (
+          <div className="text-xs text-muted-foreground mt-0.5">{reasons.join(" · ")}</div>
+        )}
       </div>
       <MineOnlyButton
         transactionId={txn.id}
