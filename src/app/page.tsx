@@ -1,6 +1,7 @@
 import ResetDbButton from "./reset-db-button";
 import RecentTransactionsTable from "./recent-transactions-table";
 import MonthSwitcher from "./components/month-switcher";
+import MonthlyExportControls from "./monthly-export-controls";
 import { CategoryDot } from "./components/category-chip";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { db } from "@/lib/db";
@@ -93,6 +94,8 @@ export default async function Dashboard({ searchParams }: PageProps) {
             current={activeMonth}
             totalSpend={totalSpend}
           />
+
+          <MonthlyExportControls month={activeMonth} />
 
           <section className="grid grid-cols-3 gap-4">
             <StatCard label="Transactions" value={stats.total ?? 0} />
