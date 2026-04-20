@@ -33,15 +33,15 @@ export default function ConfirmDialog({
 
   const confirmClassName =
     tone === "danger"
-      ? "bg-red-600 text-white hover:bg-red-700 dark:bg-red-500 dark:text-black dark:hover:bg-red-400"
-      : "bg-black text-white hover:bg-black/85 dark:bg-white dark:text-black dark:hover:bg-white/85";
+      ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+      : "bg-primary text-primary-foreground hover:bg-primary/90";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-md rounded-xl border border-black/10 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-neutral-950">
+      <div className="w-full max-w-md rounded-xl border border-border bg-background p-5 shadow-xl">
         <div className="space-y-2">
           <h2 className="text-lg font-semibold">{title}</h2>
-          <p className="text-sm opacity-70">{description}</p>
+          <p className="text-sm text-muted-foreground">{description}</p>
         </div>
         {skipFutureLabel && onSkipFutureChange ? (
           <label className="mt-4 flex items-center gap-2 text-sm opacity-80">
@@ -59,7 +59,7 @@ export default function ConfirmDialog({
             type="button"
             onClick={onCancel}
             disabled={busy}
-            className="rounded-md border border-black/15 px-3 py-2 text-sm hover:bg-black/5 disabled:opacity-50 dark:border-white/15 dark:hover:bg-white/10"
+            className="rounded-md border border-border px-3 py-2 text-sm text-card-foreground hover:bg-muted disabled:opacity-50"
           >
             {cancelLabel}
           </button>

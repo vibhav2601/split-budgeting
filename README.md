@@ -1,50 +1,42 @@
 # Budget Reconciler
 
-Personal budgeting app that reconciles credit card, Venmo, and Splitwise
-activity into your *true* personal spend. When Splitwise says your share of a
-$100 dinner was $25, the $100 credit card charge stops double-counting.
+ If you love splitwise and credit card optimization but still want to know how much you're spending this is for you. 
 
-## Setup
+ Split budgeting consolidates expenses across different accounts, venmo and splitwise and recommends merging expenses. This webapp uses local SQLite so it deduped and persists charges and budgets across sessions.
 
-```bash
-cp .env.local.example .env.local
-# fill in OPENAI_API_KEY and SPLITWISE_API_KEY
-npm install
-npm run dev
-```
+ Eg: 
+ Credit card charge TACO BELL 5/1/25 67.8$
 
-Open http://localhost:3000.
+ Splitwise/venmo 68$ split among three people, split budgeting will consolidate and recommend you merging transactions and count only (67.8/3) when the dinner was split between 3 people.
 
-### Getting keys
+## Features
 
-- **OpenAI**: https://platform.openai.com/api-keys (uses `gpt-4o` by default; override with `OPENAI_MODEL`)
-- **Splitwise**: https://secure.splitwise.com/oauth_clients — "Register your
-  application," then click "Generate API key." Works on the free plan.
+- Import credit card & Venmo from CSV
+- Import a single transaction from a screenshot
+- Sync Splitwise expenses through the Splitwise API
+- Reconcile Splitwise expenses against credit card or Venmo transactions
+- Get AI category suggestions for uncategorized transactions
+- Review monthly spend, recent transactions, and source data from the UI
+- Store everything locally in SQLite so it persists across sessions,
 
-## Flow
+## Install
 
-1. `/import` — upload credit card / Venmo / Splitwise CSVs, or screenshots
-   (parsed with GPT vision), or sync Splitwise via API.
-2. `/reconcile` — Splitwise reconcile: review suggested merges, pick the real match, confirm.
-3. `/` — dashboard shows monthly true-spend by category.
+### 1. Install dependencies
 
-## Matching algorithm
+- Run `npm install`
 
-For each unreconciled Splitwise expense that you paid or shared, excluding
-settlement rows like "Settle all balances", we search credit card + Venmo
-transactions within ±3 days and score candidates on:
+### 2. Create your env file
 
-- **Amount**: Splitwise group total ≈ CC amount (within 15% tolerance).
-- **Date**: exact / ±1 / ±3.
-- **Payer**: "I paid" in Splitwise → expect CC charge. "They paid" →
-  expect Venmo outflow from you.
-- **Merchant**: GPT judges whether "dinner" and "TACO BELL #1234" are the
-  same thing, in one batched call.
+- Run `cp .env.local.example .env.local`
 
-Composite score ≥ 0.45 = suggested. You confirm, and the merged entry
-becomes `amount_my_share`; the CC/Venmo rows are flagged reconciled.
+### 3. Add your keys
 
-## Storage
+- Set `OPENAI_API_KEY` for AI features
+- Set `SPLITWISE_API_KEY` if you want Splitwise sync
+- Optionally set `OPENAI_MODEL`
+- Optionally set `BUDGET_DB_PATH`
 
-Local SQLite at `./data/budget.db` (configurable via `BUDGET_DB_PATH`). The
-folder is gitignored. Delete it to start fresh.
+### 4. Start the app
+
+- Run `npm run dev`
+- Open `http://localhost:3000`

@@ -146,6 +146,9 @@ export default async function Dashboard({ searchParams }: PageProps) {
             <h2 className="text-sm font-medium tracking-tight text-muted-foreground uppercase">
               Recent transactions
             </h2>
+            <p className="text-sm text-muted-foreground">
+              Showing transactions for {activeMonth} only.
+            </p>
             <Card>
               <CardContent className="px-0 pb-0">
                 <RecentTransactionsTable initialTransactions={transactions} />

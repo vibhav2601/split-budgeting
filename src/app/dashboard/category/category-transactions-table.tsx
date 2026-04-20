@@ -48,9 +48,23 @@ export default function CategoryTransactionsTable({
     }
     return next;
   });
+  const [amountDrafts, setAmountDrafts] = useState<
+    Record<number, { total: string; myShare: string }>
+  >(() => {
+    const next: Record<number, { total: string; myShare: string }> = {};
+    for (const row of initialRows) {
+      next[row.id] = {
+        total: row.amount_total.toFixed(2),
+        myShare: row.amount_my_share.toFixed(2),
+      };
+    }
+    return next;
+  });
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [savingId, setSavingId] = useState<number | null>(null);
+  const [savingAmountId, setSavingAmountId] = useState<number | null>(null);
+  const [editingAmountId, setEditingAmountId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [pendingDeleteRow, setPendingDeleteRow] = useState<Transaction | null>(null);
   const [skipDeleteConfirm, setSkipDeleteConfirm] = useState(false);
@@ -137,6 +151,7 @@ export default function CategoryTransactionsTable({
   }
 
   async function applyCategory(row: Transaction, category: string) {
+    if (savingAmountId !== null) return;
     setSavingId(row.id);
     setError(null);
     try {
@@ -151,6 +166,11 @@ export default function CategoryTransactionsTable({
       if (category !== pageCategory) {
         setRows((prev) => prev.filter((txn) => txn.id !== row.id));
         setDrafts((prev) => {
+          const next = { ...prev };
+          delete next[row.id];
+          return next;
+        });
+        setAmountDrafts((prev) => {
           const next = { ...prev };
           delete next[row.id];
           return next;
@@ -171,8 +191,71 @@ export default function CategoryTransactionsTable({
     }
   }
 
+  async function saveAmounts(row: Transaction, total: string, myShare: string) {
+    if (savingAmountId !== null || deletingId !== null || savingId !== null) return;
+    setSavingAmountId(row.id);
+    setError(null);
+    try {
+      const res = await fetch("/api/transactions/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transaction_id: row.id,
+          amount_total: Number(total),
+          amount_my_share: Number(myShare),
+        }),
+      });
+      const body = (await res.json()) as { error?: string; transaction?: Transaction };
+      if (!res.ok || !body.transaction) {
+        throw new Error(body.error ?? "Failed to update transaction amounts.");
+      }
+      const updated = body.transaction;
+      setRows((prev) => prev.map((txn) => (txn.id === row.id ? updated : txn)));
+      setAmountDrafts((prev) => ({
+        ...prev,
+        [row.id]: {
+          total: updated.amount_total.toFixed(2),
+          myShare: updated.amount_my_share.toFixed(2),
+        },
+      }));
+      setEditingAmountId(null);
+      startTransition(() => {
+        router.refresh();
+      });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSavingAmountId(null);
+    }
+  }
+
+  function startEditingAmounts(row: Transaction) {
+    if (row.reconciled || deletingId !== null || savingId !== null || savingAmountId !== null) {
+      return;
+    }
+    setAmountDrafts((prev) => ({
+      ...prev,
+      [row.id]: {
+        total: prev[row.id]?.total ?? row.amount_total.toFixed(2),
+        myShare: prev[row.id]?.myShare ?? row.amount_my_share.toFixed(2),
+      },
+    }));
+    setEditingAmountId(row.id);
+  }
+
+  function cancelEditingAmounts(row: Transaction) {
+    setAmountDrafts((prev) => ({
+      ...prev,
+      [row.id]: {
+        total: row.amount_total.toFixed(2),
+        myShare: row.amount_my_share.toFixed(2),
+      },
+    }));
+    setEditingAmountId(null);
+  }
+
   async function deleteRow(row: Transaction) {
-    if (deletingId !== null) return;
+    if (deletingId !== null || savingAmountId !== null || savingId !== null) return;
 
     setDeletingId(row.id);
     setError(null);
@@ -190,6 +273,11 @@ export default function CategoryTransactionsTable({
         delete next[row.id];
         return next;
       });
+      setAmountDrafts((prev) => {
+        const next = { ...prev };
+        delete next[row.id];
+        return next;
+      });
       setPendingDeleteRow(null);
       startTransition(() => {
         router.refresh();
@@ -202,7 +290,7 @@ export default function CategoryTransactionsTable({
   }
 
   function requestDelete(row: Transaction) {
-    if (deletingId !== null) return;
+    if (deletingId !== null || savingAmountId !== null || savingId !== null) return;
     if (skipDeleteConfirm) {
       void deleteRow(row);
       return;
@@ -235,7 +323,27 @@ export default function CategoryTransactionsTable({
             </thead>
             <tbody>
               {sortedRows.map((row) => {
-                const busy = savingId === row.id || deletingId === row.id;
+                const amountDraft = amountDrafts[row.id] ?? {
+                  total: row.amount_total.toFixed(2),
+                  myShare: row.amount_my_share.toFixed(2),
+                };
+                const parsedTotal = Number(amountDraft.total);
+                const parsedMyShare = Number(amountDraft.myShare);
+                const amountsValid =
+                  amountDraft.total.trim() !== "" &&
+                  amountDraft.myShare.trim() !== "" &&
+                  Number.isFinite(parsedTotal) &&
+                  Number.isFinite(parsedMyShare) &&
+                  parsedTotal >= 0 &&
+                  parsedMyShare >= 0 &&
+                  parsedMyShare <= parsedTotal + 0.01;
+                const amountsChanged =
+                  amountDraft.total !== row.amount_total.toFixed(2) ||
+                  amountDraft.myShare !== row.amount_my_share.toFixed(2);
+                const amountLocked = Boolean(row.reconciled);
+                const amountBusy = savingAmountId === row.id;
+                const busy = savingId === row.id || deletingId === row.id || amountBusy;
+                const editingAmounts = editingAmountId === row.id;
                 const draft = drafts[row.id] ?? row.category ?? "";
                 return (
                   <tr
@@ -249,10 +357,88 @@ export default function CategoryTransactionsTable({
                     <td className="px-3 min-w-40">{row.merchant_raw}</td>
                     <td className="px-3 min-w-64">{renderValue(row.description)}</td>
                     <td className="px-3 text-right font-mono whitespace-nowrap">
-                      ${row.amount_total.toFixed(2)}
+                      {editingAmounts ? (
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          step="0.01"
+                          min="0"
+                          value={amountDraft.total}
+                          disabled={busy || amountLocked}
+                          onChange={(e) =>
+                            setAmountDrafts((prev) => ({
+                              ...prev,
+                              [row.id]: {
+                                total: e.target.value,
+                                myShare: prev[row.id]?.myShare ?? row.amount_my_share.toFixed(2),
+                              },
+                            }))
+                          }
+                          className="w-24 rounded border border-black/15 dark:border-white/15 bg-transparent px-2 py-2 text-sm text-right font-mono"
+                          aria-label={`Total amount for transaction ${row.id}`}
+                        />
+                      ) : (
+                        `$${row.amount_total.toFixed(2)}`
+                      )}
                     </td>
                     <td className="px-3 text-right font-mono whitespace-nowrap">
-                      ${row.amount_my_share.toFixed(2)}
+                      {editingAmounts ? (
+                        <div className="flex items-center justify-end gap-2">
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            step="0.01"
+                            min="0"
+                            value={amountDraft.myShare}
+                            disabled={busy || amountLocked}
+                            onChange={(e) =>
+                              setAmountDrafts((prev) => ({
+                                ...prev,
+                                [row.id]: {
+                                  total: prev[row.id]?.total ?? row.amount_total.toFixed(2),
+                                  myShare: e.target.value,
+                                },
+                              }))
+                            }
+                            className="w-24 rounded border border-black/15 dark:border-white/15 bg-transparent px-2 py-2 text-sm text-right font-mono"
+                            aria-label={`My share amount for transaction ${row.id}`}
+                          />
+                          <button
+                            type="button"
+                            disabled={Boolean(
+                              amountBusy || amountLocked || !amountsValid || !amountsChanged || deletingId !== null || savingId !== null,
+                            )}
+                            onClick={() => void saveAmounts(row, amountDraft.total, amountDraft.myShare)}
+                            className="px-2 py-1 rounded bg-black text-white dark:bg-white dark:text-black text-xs disabled:opacity-50"
+                          >
+                            {amountBusy ? "Saving…" : "Save"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={amountBusy}
+                            onClick={() => cancelEditingAmounts(row)}
+                            className="px-2 py-1 rounded border border-black/15 dark:border-white/15 text-xs disabled:opacity-50"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-end gap-2">
+                          <span>${row.amount_my_share.toFixed(2)}</span>
+                          {!amountLocked ? (
+                            <button
+                              type="button"
+                              onClick={() => startEditingAmounts(row)}
+                              disabled={busy}
+                              title="Edit amounts"
+                              aria-label="Edit amounts"
+                              className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-black/10 text-current hover:bg-black/5 disabled:opacity-50 dark:border-white/15 dark:hover:bg-white/10"
+                            >
+                              <PencilIcon className="size-4" />
+                            </button>
+                          ) : null}
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 whitespace-nowrap">
                       {row.reconciled ? "merged" : row.mine_only ? "mine only" : "pending"}
@@ -342,6 +528,24 @@ export default function CategoryTransactionsTable({
         }}
       />
     </div>
+  );
+}
+
+function PencilIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4Z" />
+    </svg>
   );
 }
 
